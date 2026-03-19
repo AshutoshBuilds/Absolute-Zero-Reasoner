@@ -1,5 +1,10 @@
 # Absolute Zero Model (AZR) Workspace
 
+## Branch and workflow policy
+
+Work on the local feature branch `feature/azr-local-hf-work` (tracking `origin/feature/azr-local-hf-work`).
+Keep `main` aligned with the upstream path and do not re-add or use a nested `Absolute-Zero-Reasoner/` checkout for this repo’s workflows.
+
 This workspace has two training tracks:
 
 1. **Local/Dev Track (single-machine, desktop-friendly)**
