@@ -12,7 +12,7 @@ Goal: Keep local iteration fast and stable on 3090 Ti while enabling official-st
 
 ## VPS mode (H200/H100/A100)
 
-- Use: `Absolute-Zero-Reasoner/scripts/selfplay/*.sh` (official scripts).
+- Use: official scripts from a separate checkout of `AshutoshBuilds/Absolute-Zero-Reasoner`.
 - Why: distributed Ray + vLLM + veRL stack from the GitHub project.
 - Primary target: full protocol parity and large-scale runs.
 
@@ -40,6 +40,13 @@ Goal: Keep local iteration fast and stable on 3090 Ti while enabling official-st
 bash scripts/run_remote_official_azr.sh 7b
 ```
 
+Use an explicit checkout path when running remote mode:
+
+```bash
+export AZR_OFFICIAL_REPO_PATH=/path/to/AshutoshBuilds-Absolute-Zero-Reasoner
+bash scripts/run_remote_official_azr.sh 7b
+```
+
 ### Optional local run policy (new)
 
 - Use timestamped run folders in `training_run_logs/` for every launch.
@@ -64,6 +71,6 @@ bash scripts/run_remote_official_azr.sh 7b
   - official: configured checkpoint / artifact path in selected `.sh` script.
 - Confirm runtime stack:
   - local: no Ray/vLLM import required in main path.
-  - official: Ray/vLLM training process starts and logs worker initialization.
+  - official: run against explicit official checkout path and confirm Ray/vLLM training process starts and logs worker initialization.
 - Compare final metrics with `run_pre_post_benchmarks.py` protocols as configured.
 

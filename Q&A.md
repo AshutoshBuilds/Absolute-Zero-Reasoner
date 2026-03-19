@@ -3,6 +3,9 @@
 ## Q1: What is the Absolute Zero approach?
 A1: The Absolute Zero approach is a reinforcement learning method that uses self-play reasoning with zero data. It allows an AI model to learn entirely through self-interaction without requiring any external training data. The model learns by playing against itself and improving through the rewards it receives.
 
+## Q: Why is there no nested `Absolute-Zero-Reasoner/` folder in this workspace now?
+A: The nested official repo was removed from the active workspace to keep local experimentation, local branch changes, and generated artifacts isolated on `feature/azr-local-hf-work`. Official protocol execution is now expected from a separate upstream checkout (`AshutoshBuilds/Absolute-Zero-Reasoner`), and can be targeted via `AZR_OFFICIAL_REPO_PATH` when using the remote launcher.
+
 ## Q2: What are the main components needed to implement this approach?
 A2: The main components include:
 1. A neural network model to approximate the Q-function

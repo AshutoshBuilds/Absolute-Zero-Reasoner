@@ -25,7 +25,7 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$ROOT_DIR/.."; pwd)"
-AZR_DIR="$PROJECT_ROOT/Absolute-Zero-Reasoner"
+AZR_DIR="${AZR_OFFICIAL_REPO_PATH:-$PROJECT_ROOT/Absolute-Zero-Reasoner}"
 
 MODE="${1:-7b}"
 if [[ "$MODE" == -* ]]; then
@@ -64,6 +64,8 @@ fi
 RUN_SCRIPT="$AZR_DIR/$SCRIPT_NAME"
 if [[ ! -f "$RUN_SCRIPT" ]]; then
   echo "Expected script not found: $RUN_SCRIPT"
+  echo "If this workspace removed the nested checkout, set AZR_OFFICIAL_REPO_PATH to an official AZR clone:"
+  echo "  export AZR_OFFICIAL_REPO_PATH=/path/to/AshutoshBuilds-Absolute-Zero-Reasoner"
   exit 2
 fi
 

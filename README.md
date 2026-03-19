@@ -8,9 +8,16 @@ This workspace has two training tracks:
    - Suitable for iterations and diagnostics on RTX 3090 Ti.
 
 2. **Official Protocol Track (distributed, VPS/GPU scale)**
-   - Uses the original repo stack under `Absolute-Zero-Reasoner/`.
-   - Ray + vLLM + veRL scripts in `Absolute-Zero-Reasoner/scripts/...`.
+   - Uses the original repo stack from a separate checkout of `AshutoshBuilds/Absolute-Zero-Reasoner`.
+   - Ray + vLLM + veRL scripts in that external stack.
    - Suitable for H200/H100/A100 scale runs and closer parity with upstream protocol.
+   
+Note: this workspace no longer includes a nested `Absolute-Zero-Reasoner/` checkout. For official protocol execution, clone upstream separately and point `AZR_OFFICIAL_REPO_PATH` to it:
+
+```bash
+git clone https://github.com/AshutoshBuilds/Absolute-Zero-Reasoner.git /path/to/official-azr
+export AZR_OFFICIAL_REPO_PATH=/path/to/official-azr
+```
 
 ## Why two modes
 
@@ -75,8 +82,8 @@ Modes available:
 - `llama`
 
 This forwards directly to:
-- `Absolute-Zero-Reasoner/scripts/selfplay/7b.sh`
-- `Absolute-Zero-Reasoner/scripts/selfplay/coder7b.sh`
+- `<official-repo-checkout>/scripts/selfplay/7b.sh`
+- `<official-repo-checkout>/scripts/selfplay/coder7b.sh`
 - and so on.
 
 ## Benchmark comparison (local/evaluation)
@@ -90,6 +97,6 @@ Use:
 ## Repository structure snapshot
 
 - `hf_trainer.py`, `evaluate_benchmarks.py`, `optimize_hyperparameters.py`: local workflow entrypoints.
-- `Absolute-Zero-Reasoner/`: original repository stack (Ray/vLLM reference implementation).
+- `Absolute-Zero-Reasoner` (nested checkout) is intentionally excluded; official protocol work is kept in a separate checked-out path.
 - `Documents/original_protocol_comparison_notes.md`: detailed local-vs-original protocol notes.
 - `training_metrics/`, `evaluation_results/`, `hf_checkpoints/` (current default checkpoint location for local HF runs).

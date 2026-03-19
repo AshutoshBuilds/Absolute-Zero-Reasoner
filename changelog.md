@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-03-20 01:43:09 IST
+- Synced root work to branch `feature/azr-local-hf-work` tracking `origin/feature/azr-local-hf-work` for all local-modified code.
+- Removed the nested `Absolute-Zero-Reasoner/` checkout from the active root workspace.
+- Updated `README.md` and `.cursor/plans/hybrid_azr_training_execution_09dcfd77.plan.md` to document that official Ray/vLLM protocol runs use a separate upstream AZR checkout.
+- Updated `scripts/run_remote_official_azr.sh` to read `AZR_OFFICIAL_REPO_PATH` (with clear guidance when missing) instead of hard dependency on a nested subfolder.
+
 ## 2023-10-08 16:30 GMT
 - Initial project setup
 - Created tracking files (changelog.md, Q&A.md)
