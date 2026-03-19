@@ -6,6 +6,10 @@
 - Updated `README.md` and `.cursor/plans/hybrid_azr_training_execution_09dcfd77.plan.md` to document that official Ray/vLLM protocol runs use a separate upstream AZR checkout.
 - Updated `scripts/run_remote_official_azr.sh` to read `AZR_OFFICIAL_REPO_PATH` (with clear guidance when missing) instead of hard dependency on a nested subfolder.
 
+## 2026-03-20 01:46:43 IST
+- Added explicit feature-branch workflow guidance in `README.md` (`feature/azr-local-hf-work` as workspace branch, keep `main` aligned upstream).
+- Added a direct reminder to avoid re-adding the nested `Absolute-Zero-Reasoner/` checkout in this repo’s local workflows.
+
 ## 2023-10-08 16:30 GMT
 - Initial project setup
 - Created tracking files (changelog.md, Q&A.md)
