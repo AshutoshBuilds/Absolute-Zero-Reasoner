@@ -1,0 +1,27 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# AZR Project Overview & Core Technologies
+
+This project aims to understand, run, and potentially extend the [Absolute-Zero-Reasoner (AZR)](mdc:Absolute-Zero-Reasoner/README.md) as described in the paper "Absolute Zero: Reinforced Self-play Reasoning with Zero Data."
+
+**Original Goal (from paper):**
+Create a system where a model learns to propose and solve coding tasks (deduction, abduction, induction) in a self-play loop, improving its reasoning abilities without external human-curated data, guided by a code execution environment.
+
+**Key Technologies Used in the Original Repository:**
+- **Configuration:** [Hydra](mdc:https:/hydra.cc) (see `Absolute-Zero-Reasoner/absolute_zero_reasoner/configs/`)
+- **Distributed Computing & RL Framework Backend:** [Ray](mdc:https:/www.ray.io)
+- **Reinforcement Learning Framework:** [veRL (forked)](mdc:https:/github.com/volcengine/verl) - The local `Absolute-Zero-Reasoner/verl/` directory is a modified version.
+- **Efficient LLM Inference/Rollouts:** [vLLM](mdc:https:/github.com/vllm-project/vllm)
+- **Code Execution:** A Python executor adapted from the "QwQ Repository" (identified as [Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py)).
+- **Models:** Primarily Qwen2.5 and Llama3.1 based models, configurable via Hydra.
+- **Logging:** Weights & Biases (W&B).
+
+**Our Current Strategy (Post-Cloning):**
+1.  Thoroughly explore and understand the original AZR codebase.
+2.  Set up the specified Conda environment and run the original scripts.
+3.  Identify areas for potential contributions, such as enhancing the Python executor (using insights from our [code_executor.py](mdc:code_executor.py)) or experimenting with reward functions/model configurations.
+4.  Revise our [AZR_Implementation_Plan.md](mdc:AZR_Implementation_Plan.md) to align with this new strategy.
+
