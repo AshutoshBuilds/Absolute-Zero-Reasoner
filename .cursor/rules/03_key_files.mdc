@@ -7,37 +7,37 @@ alwaysApply: true
 
 This rule highlights some of the most critical files in the AZR codebase and their primary responsibilities.
 
--   **`Absolute-Zero-Reasoner/README.md`**: ([view](mdc:Absolute-Zero-Reasoner/README.md))
+-   **`README.md`**: (official checkout)
     -   **Role**: Main project documentation. Provides setup instructions, links, overview, and training/evaluation commands.
     -   **Key Info**: Environment setup (conda, pip, `verl` local install), script locations for seeding and self-play, Python executor source (QwQ repo), model types used.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/main_azr_ppo.py`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/main_azr_ppo.py))
+-   **`absolute_zero_reasoner/main_azr_ppo.py`**: (official checkout)
     -   **Role**: Main Python entry point for PPO-based training, launched by shell scripts.
     -   **Key Info**: Uses Hydra for configuration, initializes Ray, launches the `main_task` (Ray remote actor), which then sets up and runs `CodeIORayPPOTrainer`.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/configs/azr_ppo_trainer.yaml`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/configs/azr_ppo_trainer.yaml))
+-   **`absolute_zero_reasoner/configs/azr_ppo_trainer.yaml`**: (official checkout)
     -   **Role**: Primary Hydra configuration file.
     -   **Key Info**: Defines default parameters for data paths, model paths (e.g., `deepseek-llm-7b-chat`), actor/critic/reward_model setups, RL algorithm parameters (`adv_estimator: reinforce_plus_plus`), trainer settings, and crucial `azr` section for AZR-specific logic (executor type `qwq`, problem types, data selection, reward configurations).
 
--   **`Absolute-Zero-Reasoner/scripts/selfplay/*.sh`** (e.g., [7b.sh](mdc:Absolute-Zero-Reasoner/scripts/selfplay/7b.sh)):
+-   **`scripts/selfplay/*.sh`** (e.g., `7b.sh`):
     -   **Role**: Shell scripts used to launch self-play training for specific model configurations.
     -   **Key Info**: Set environment variables, call `python -m absolute_zero_reasoner.main_azr_ppo` with numerous Hydra command-line overrides for `azr_ppo_trainer.yaml`.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/trainer/ppo/azr_ray_trainer.py`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/trainer/ppo/azr_ray_trainer.py))
+-   **`absolute_zero_reasoner/trainer/ppo/azr_ray_trainer.py`**:
     -   **Role**: Contains `CodeIORayPPOTrainer` class, which orchestrates the AZR self-play loop.
     -   **Key Info**: Initializes the `PythonExecutor`, `DatasetManager` (Ray actor for task buffers), handles data loading for proposer/solver, and calls `_compute_batch` which involves generation, reward calculation (via `CodeIORewardManager`), and advantage computation. Inherits from `ReasonRLRayPPOTrainer`.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/rewards/reward_managers.py`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/rewards/reward_managers.py))
+-   **`absolute_zero_reasoner/rewards/reward_managers.py`**:
     -   **Role**: Defines `CodeIORewardManager`, responsible for calculating rewards.
     -   **Key Info**: Takes the `PythonExecutor` instance during its `__call__` method. Uses executor methods like `check_all` (for task validation and ground truth generation) and `eval_*_prediction` (for scoring solver attempts). Implements logic for `r_propose` (learnability from solver accuracy on proposed tasks) and `r_solve` (direct accuracy of solver), and combines intrinsic rewards.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py))
+-   **`absolute_zero_reasoner/utils/code_utils/python_executor.py`**:
     -   **Role**: The "qwq" Python code executor.
     -   **Key Info**: Uses `pebble.ProcessPool` for multiprocessing and timeouts. Implements `check_all`, `eval_input_prediction`, `eval_output_prediction`, etc. Relies on `templates.py` for code wrapping and `checks.py` for safety (e.g., `contains_banned_imports`).
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/checks.py`**: ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/checks.py))
+-   **`absolute_zero_reasoner/utils/code_utils/checks.py`**:
     -   **Role**: Provides safety check functions, notably `contains_banned_imports` (uses AST parsing) and `check_determinism`.
 
--   **`Absolute-Zero-Reasoner/verl/`**: ([view](mdc:Absolute-Zero-Reasoner/verl/README.md))
+-   **`verl/`**:
     -   **Role**: Forked version of the veRL framework, providing base classes and utilities for distributed RL training (e.g., `RayPPOTrainer`, worker definitions, FSDP/Megatron support).
 

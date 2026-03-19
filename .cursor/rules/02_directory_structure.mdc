@@ -5,9 +5,9 @@ alwaysApply: true
 ---
 # Key Directory Structure for Absolute-Zero-Reasoner
 
-This outlines the important directories within the cloned `Absolute-Zero-Reasoner` repository.
+This outlines the important directories within the official `Absolute-Zero-Reasoner` checkout.
 
--   **`Absolute-Zero-Reasoner/absolute_zero_reasoner/`**: Main Python package for AZR.
+-   **`absolute_zero_reasoner/`**: Main Python package for AZR.
     -   **`configs/`**: Contains [Hydra](mdc:https:/hydra.cc) configuration files (e.g., `azr_ppo_trainer.yaml`). Crucial for understanding experiment parameters, model paths, reward settings, and AZR-specific logic.
     -   **`data_construction/`**: Modules for processing and constructing datasets, including evaluation data (e.g., `process_code_reasoning_data.py`).
     -   **`rewards/`**: Implements reward calculation logic.
@@ -23,13 +23,13 @@ This outlines the important directories within the cloned `Absolute-Zero-Reasone
             -   `parsers.py`: For parsing code, inputs, outputs from model generations.
             -   `templates.py`: String templates used by the executor to wrap code for execution.
         -   `convert2hf.py`: Utility to convert `veRL` checkpoints to Hugging Face format.
--   **`Absolute-Zero-Reasoner/scripts/`**: Shell scripts for launching experiments.
+-   **`scripts/`**: Shell scripts for launching experiments.
     -   **`seeding/`**: Scripts to generate initial seed datasets (e.g., `7b.sh`, `coder7b.sh`).
     -   **`selfplay/`**: Scripts to run the main self-play training loop (e.g., `7b.sh`, `coder7b.sh`). These scripts typically call `absolute_zero_reasoner.main_azr_ppo` with extensive Hydra configuration overrides.
--   **`Absolute-Zero-Reasoner/data/`**: Default location for seed datasets and potentially other data files (e.g., `math/`, `code_reason/`).
--   **`Absolute-Zero-Reasoner/verl/`**: A forked and likely modified version of the [veRL framework](mdc:https:/github.com/volcengine/verl), providing the underlying distributed RL capabilities (PPO, worker management, FSDP/Megatron integration).
+-   **`data/`**: Default location for seed datasets and potentially other data files (e.g., `math/`, `code_reason/`) in the official checkout.
+-   **`verl/`**: A forked and likely modified version of the [veRL framework](mdc:https:/github.com/volcengine/verl), providing the underlying distributed RL capabilities (PPO, worker management, FSDP/Megatron integration).
 
-**Our Workspace Files (outside `Absolute-Zero-Reasoner/`):**
+**Our Workspace Files (outside official checkout):**
 -   `our_initial_azr_prototype/`: Contains our earlier mock implementations.
 -   [code_executor.py](mdc:code_executor.py): Our custom Python executor, developed before cloning the original repo. Kept for potential integration/enhancement ideas for the original repo's executor.
 -   [AZR_Implementation_Plan.md](mdc:AZR_Implementation_Plan.md): Our project plan, being updated to reflect working with the original codebase.

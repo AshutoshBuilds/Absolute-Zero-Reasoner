@@ -235,7 +235,7 @@ The project implements the "Absolute Zero: Reinforced Self-play Reasoning with Z
 - `results/`, `outputs/` - Training outputs
 - `tests/` - Unit tests
 - `ARCHIVED_CODE/` - Legacy implementations
-- `Absolute-Zero-Reasoner/` - Original paper implementation
+- `Absolute-Zero-Reasoner/` - Original paper implementation (kept/used from external checkout)
 - `our_initial_azr_prototype/` - Initial development work
 
 ### 🧹 **Cleanup Opportunities**

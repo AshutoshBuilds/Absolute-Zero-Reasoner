@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # Notes on AZR's Python Executor
 
-This rule details specifics of the Python executor found in [Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py).
+This rule details specifics of the Python executor found in the official checkout’s `absolute_zero_reasoner/utils/code_utils/python_executor.py`.
 
 **Class:** `PythonExecutor`
 
@@ -19,11 +19,11 @@ This rule details specifics of the Python executor found in [Absolute-Zero-Reaso
 -   **AST Checks:**
     -   Optionally performs an `ast.parse()` on code snippets before execution if `self.ast_check` is true (configurable by `azr.ast_check`).
 -   **Safety - Banned Imports/Keywords:**
-    -   The `check_all` method calls `contains_banned_imports` (from [Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/checks.py](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/checks.py)).
+    -   The `check_all` method calls `contains_banned_imports` (from `absolute_zero_reasoner/utils/code_utils/checks.py` in official checkout).
     -   `contains_banned_imports` uses `ast.parse` to detect forbidden imports and also checks for specified banned keywords related to error handling (e.g., `raise`, `try`).
     -   The list of `banned_keywords` is passed to `check_all` (originates from `azr.data_selection_strategy.banned_words` in Hydra config).
 -   **Code Wrapping & Templates:**
-    -   Uses string templates (from [Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/templates.py](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/templates.py)) to wrap the provided code, inputs, and evaluation logic into a runnable snippet (e.g., `RUN_CODE_TEMPLATE`, `EVAL_INPUT_PREDICTION_TEMPLATE`).
+    -   Uses string templates (from `absolute_zero_reasoner/utils/code_utils/templates.py` in official checkout) to wrap the provided code, inputs, and evaluation logic into a runnable snippet (e.g., `RUN_CODE_TEMPLATE`, `EVAL_INPUT_PREDICTION_TEMPLATE`).
 -   **Key Methods for AZR Loop:**
     -   `check_all()`: Validates code for syntax, banned imports, determinism, and can check for expected errors.
     -   `eval_input_prediction()`: Evaluates if a predicted input for a given program yields the gold output.

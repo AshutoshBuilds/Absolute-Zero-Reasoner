@@ -8,12 +8,12 @@ alwaysApply: true
 This rule outlines the high-level execution flow when launching an AZR self-play training session.
 
 1.  **Shell Script Invocation**:
-    *   User executes a script from `Absolute-Zero-Reasoner/scripts/selfplay/` (e.g., `7b.sh`).
+    *   User executes a script from the official checkout’s `scripts/selfplay/` directory (e.g., `7b.sh`).
     *   This script sets environment variables and then calls the main Python module with Hydra configuration overrides.
     *   Example: `python -m absolute_zero_reasoner.main_azr_ppo data.train_batch_size=64 ...`
 
 2.  **Main Python Entry Point (`main_azr_ppo.py`)**:
-    *   ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/main_azr_ppo.py))
+    *   (official checkout: `absolute_zero_reasoner/main_azr_ppo.py`)
     *   Hydra loads configurations (base from `configs/azr_ppo_trainer.yaml` + shell overrides).
     *   Ray is initialized if not already active.
     *   A Ray remote task `main_task` is launched.
@@ -22,8 +22,8 @@ This rule outlines the high-level execution flow when launching an AZR self-play
     *   Performs further configuration processing (e.g., dynamic batch size adjustments).
     *   Instantiates the Hugging Face `tokenizer`.
     *   Sets up worker classes based on strategy (FSDP/Megatron) from the `verl` framework.
-    *   Instantiates `CodeIORewardManager` ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/rewards/reward_managers.py)) for both training and validation.
-    *   Instantiates `CodeIORayPPOTrainer` ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/trainer/ppo/azr_ray_trainer.py)).
+    *   Instantiates `CodeIORewardManager` (`absolute_zero_reasoner/rewards/reward_managers.py`) for both training and validation.
+    *   Instantiates `CodeIORayPPOTrainer` (`absolute_zero_reasoner/trainer/ppo/azr_ray_trainer.py`).
     *   Calls `trainer.init_workers()` and then `trainer.fit()`.
 
 4.  **`CodeIORayPPOTrainer.fit()` (and its internals like `_train_step`, `_compute_batch`)**:
@@ -51,7 +51,7 @@ This rule outlines the high-level execution flow when launching an AZR self-play
     *   Logging, checkpointing, and validation (`_validate()`) occur periodically.
 
 5.  **Python Executor (`python_executor.py`) Usage**:
-    *   ([view](mdc:Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py))
+    *   ([official checkout: `absolute_zero_reasoner/utils/code_utils/python_executor.py`])
     *   Instantiated by `CodeIORayPPOTrainer`.
     *   Passed as an argument to `CodeIORewardManager` during reward computation.
     *   Its methods (`check_all`, `eval_input_prediction`, etc.) are called by `CodeIORewardManager` to execute code, check determinism, verify solutions, and validate task proposals.

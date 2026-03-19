@@ -10,6 +10,12 @@
 - Added explicit feature-branch workflow guidance in `README.md` (`feature/azr-local-hf-work` as workspace branch, keep `main` aligned upstream).
 - Added a direct reminder to avoid re-adding the nested `Absolute-Zero-Reasoner/` checkout in this repo’s local workflows.
 
+## 2026-03-20 01:52:08 IST
+- Completed a sweep for remaining hardcoded `Absolute-Zero-Reasoner` path usage in local guidance/docs:
+  - Updated `.cursor/rules/*.mdc` to reference official checkout files instead of a nested local clone path.
+  - Updated `README.md`, `Q&A.md`, `Documents/AZR_Implementation_Plan.md`, `Documents/PROJECT_ARCHITECTURE.md`, and `Documents/original_protocol_comparison_notes.md` to clarify official-protocol execution uses an external checkout.
+  - Updated `scripts/run_remote_official_azr.sh` messaging to align with `AZR_OFFICIAL_REPO_PATH` workflow.
+
 ## 2023-10-08 16:30 GMT
 - Initial project setup
 - Created tracking files (changelog.md, Q&A.md)

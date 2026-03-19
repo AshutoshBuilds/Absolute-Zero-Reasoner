@@ -13,8 +13,8 @@ Examples:
   bash scripts/run_remote_official_azr.sh 7b
   bash scripts/run_remote_official_azr.sh coder7b EXTRA_ARG1=VALUE
 
-This wrapper executes official Ray/vLLM training flows from
-Absolute-Zero-Reasoner/scripts/selfplay/*.sh for VPS-scale experimentation.
+This wrapper executes official Ray/vLLM training flows from the external
+official checkout `scripts/selfplay/*.sh` for VPS-scale experimentation.
 EOF
 }
 
@@ -64,7 +64,7 @@ fi
 RUN_SCRIPT="$AZR_DIR/$SCRIPT_NAME"
 if [[ ! -f "$RUN_SCRIPT" ]]; then
   echo "Expected script not found: $RUN_SCRIPT"
-  echo "If this workspace removed the nested checkout, set AZR_OFFICIAL_REPO_PATH to an official AZR clone:"
+  echo "Set AZR_OFFICIAL_REPO_PATH to your external AZR checkout if needed:"
   echo "  export AZR_OFFICIAL_REPO_PATH=/path/to/AshutoshBuilds-Absolute-Zero-Reasoner"
   exit 2
 fi

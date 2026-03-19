@@ -3,7 +3,7 @@
 **Overall Goal:** Understand, set up, run, and potentially extend the [original Absolute-Zero-Reasoner (AZR) repository](https://github.com/LeapLabTHU/Absolute-Zero-Reasoner) to replicate and explore the self-play reasoning system described in the paper "Absolute Zero: Reinforced Self-play Reasoning with Zero Data," **leveraging local Ollama models for LLM inference.**
 
 **Our Current Workspace Contains:**
--   A clone of the original `Absolute-Zero-Reasoner` repository.
+-   An external/reference `Absolute-Zero-Reasoner` checkout for protocol comparison (run separately when using official stack workflows).
 -   This plan file (`AZR_Implementation_Plan.md`).
 -   Our custom `code_executor.py` (kept for reference; the original repo's executor will likely be used for code task execution).
 -   An `archived_tictactoe_project/` directory with our previous Tic-Tac-Toe RL agent.
@@ -27,7 +27,7 @@
     *   Most `requirements.txt` dependencies are installed, with workarounds for Windows-incompatible packages (`triton`, `uvloop`, etc., have been commented out; `flash-attn` installed via wheel).
     *   **Remaining Concern:** Potential version conflicts (`verl` vs. `vllm` vs. `transformers`) flagged by pip. Using Ollama might bypass some `vLLM` direct dependencies, potentially mitigating these.
 *   **P0.3: Python Code Executor (Decision: Use Original Repo's Executor):**
-    *   The original repo's `Absolute-Zero-Reasoner/absolute_zero_reasoner/utils/code_utils/python_executor.py` will be used for executing the *generated code tasks*. It has features like `pebble.ProcessPool` for timeouts and `checks.contains_banned_imports`.
+    *   The original repo’s `absolute_zero_reasoner/utils/code_utils/python_executor.py` (from the official checkout) will be used for executing the *generated code tasks*. It has features like `pebble.ProcessPool` for timeouts and `checks.contains_banned_imports`.
     *   Our `code_executor.py` is archived for reference.
 *   **P0.4: Initial Codebase Walkthrough (Status: Good Progress):**
     *   Key components and execution flow are generally understood. Rules have been created.

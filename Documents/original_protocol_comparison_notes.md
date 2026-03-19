@@ -1,7 +1,7 @@
 # AZR Protocol Comparison Notes (Original Repo vs Local Branch)
 
 ## Scope checked
-- Source of truth for original protocol: `Absolute-Zero-Reasoner/README.md` and `Absolute-Zero-Reasoner/absolute_zero_reasoner/main_azr_ppo.py` plus training shell scripts under `Absolute-Zero-Reasoner/scripts/*`.
+- Source of truth for original protocol: official `Absolute-Zero-Reasoner` checkout files (`README.md`, `absolute_zero_reasoner/main_azr_ppo.py`) plus training shell scripts under `scripts/*`.
 - Source of truth for local protocol: `run_pre_post_benchmarks.py`, `evaluate_benchmarks.py`, `hf_trainer.py`, and related entrypoints in this workspace.
 
 ## Original GitHub protocol (as observed)

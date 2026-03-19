@@ -102,6 +102,6 @@ Use:
 ## Repository structure snapshot
 
 - `hf_trainer.py`, `evaluate_benchmarks.py`, `optimize_hyperparameters.py`: local workflow entrypoints.
-- `Absolute-Zero-Reasoner` (nested checkout) is intentionally excluded; official protocol work is kept in a separate checked-out path.
+- Official protocol work is intentionally kept in a separate checked-out `Absolute-Zero-Reasoner` path, not in this local workspace.
 - `Documents/original_protocol_comparison_notes.md`: detailed local-vs-original protocol notes.
 - `training_metrics/`, `evaluation_results/`, `hf_checkpoints/` (current default checkpoint location for local HF runs).
