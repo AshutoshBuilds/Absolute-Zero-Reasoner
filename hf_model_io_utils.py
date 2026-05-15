@@ -2,14 +2,15 @@ import torch
 import os
 import logging
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
-from typing import Optional
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
+from typing import Optional, Any
 
 # Assuming ValueModel and _modify_layernorm_eps might be needed for loading,
 # though ideally load_model should handle different model types gracefully
 # or specific loader functions would be created for specific model wrapper types.
 # For now, let's import them if they are in a known shared location.
 from hf_value_model import ValueModel, _modify_layernorm_eps
+from hf_transformers_compat import apply_azr_attention_env_once, explicit_attn_implementation_from_azr_env
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +109,36 @@ def save_models_and_tokenizer(
         else:
             logger.warning("use_separate_value_model is False, but no main_model provided to save.")
 
-def _extract_quantization_config(model_path: Path):
+def _extract_quantization_config(model_path: Path) -> Optional[Any]:
     """
     Reads model configuration from the provided path and returns quantization_config if present.
     """
     if not Path(model_path).exists():
         return None
     config = AutoConfig.from_pretrained(str(model_path))
-    return getattr(config, "quantization_config", None)
+    raw_quantization_config = getattr(config, "quantization_config", None)
+    if raw_quantization_config is None:
+        return None
+
+    if isinstance(raw_quantization_config, BitsAndBytesConfig):
+        return raw_quantization_config
+
+    if isinstance(raw_quantization_config, dict):
+        logger.info("Converting serialized quantization_config dict to BitsAndBytesConfig for consistent reload.")
+        try:
+            return BitsAndBytesConfig.from_dict(raw_quantization_config)
+        except Exception as convert_error:
+            logger.warning(
+                "Failed to convert quantization_config dict to BitsAndBytesConfig; "
+                "falling back to None (non-quantized reload). Error: %s",
+                convert_error,
+            )
+            return None
+
+    if raw_quantization_config is not None:
+        return raw_quantization_config
+
+    return raw_quantization_config
 
 def load_models_and_tokenizer(
     load_directory: str,
@@ -126,6 +149,7 @@ def load_models_and_tokenizer(
     hf_cache_dir: Optional[str] = None   # For loading tokenizer fallback & ValueModel
 ):
     load_directory_path = Path(load_directory)
+    apply_azr_attention_env_once()
     logger.info(f"Loading models and tokenizer from directory: {load_directory_path}")
 
     # Tokenizer
@@ -156,9 +180,16 @@ def load_models_and_tokenizer(
         critic_load_path = load_directory_path / "critic_model"
         actor_quantization_config = _extract_quantization_config(actor_load_path)
         actor_load_kwargs = {"trust_remote_code": True, "cache_dir": hf_cache_dir}
+        attn_impl = explicit_attn_implementation_from_azr_env()
+        if attn_impl is not None:
+            actor_load_kwargs["attn_implementation"] = attn_impl
+        # Local AZR checkpoints embed quantization in config.json; passing quantization_config
+        # again makes Transformers warn about ambiguous duplicate quantization metadata.
         if actor_quantization_config is not None:
-            actor_load_kwargs["quantization_config"] = actor_quantization_config
-            logger.info(f"Loading actor_model with saved quantization config from {actor_load_path}.")
+            logger.info(
+                "Actor checkpoint includes quantization metadata in config.json; "
+                "loading without an extra quantization_config kwarg."
+            )
 
         if actor_load_path.exists():
             actor_model = AutoModelForCausalLM.from_pretrained(
@@ -211,11 +242,19 @@ def load_models_and_tokenizer(
              model_load_actual_path_str = str(load_directory_path)
         
         if model_load_actual_path_str:
+            main_quant = _extract_quantization_config(str(model_load_actual_path_str))
+            main_kwargs: dict = {"trust_remote_code": True, "cache_dir": hf_cache_dir}
+            attn_impl_main = explicit_attn_implementation_from_azr_env()
+            if attn_impl_main is not None:
+                main_kwargs["attn_implementation"] = attn_impl_main
+            if main_quant is not None:
+                logger.info(
+                    "Main model checkpoint includes quantization in config.json; "
+                    "loading without an extra quantization_config kwarg."
+                )
             main_model = AutoModelForCausalLM.from_pretrained(
                 model_load_actual_path_str,
-                trust_remote_code=True,
-                cache_dir=hf_cache_dir,
-                quantization_config=_extract_quantization_config(str(model_load_actual_path_str))
+                **main_kwargs,
             )
             _modify_layernorm_eps(main_model) # Re-apply LayerNorm modification
             main_model.to(device)

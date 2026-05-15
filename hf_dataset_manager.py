@@ -26,6 +26,8 @@ class DatasetManager:
         self.error_buffer: deque = deque(maxlen=500) # Stores tasks that caused errors/failures
         
         self.min_seed_size = config.get("min_seed_size", 5)
+        self.proposer_num_return_sequences = max(1, int(config.get("proposer_num_return_sequences", 8)))
+        self.k_reference = max(0, int(config.get("k_reference", 6)))
         self.is_seeded = False
 
     def generate_seeds(self, adapter, num_seeds: int = 5):
@@ -33,7 +35,7 @@ class DatasetManager:
         Uses the provided model adapter to generate initial seed tasks.
         This is crucial for 'Zero Data' start.
         """
-        logger.info(f"{Fore.CYAN}🌱 Seeding DatasetManager with {num_seeds} tasks per type using {adapter.model_name}...{Style.RESET_ALL}")
+        logger.info(f"{Fore.CYAN} Seeding DatasetManager with {num_seeds} tasks per type using {adapter.model_name}...{Style.RESET_ALL}")
         
         for p_type in self.problem_types:
             logger.info(f"  Generatng seeds for {p_type}...")
@@ -46,7 +48,12 @@ class DatasetManager:
             class MockTrainer:
                 current_difficulty = 1
             
-            prompt_text = create_proposer_prompt(MockTrainer(), p_type)
+            prompt_text = create_proposer_prompt(
+                MockTrainer(),
+                p_type,
+                seed_tasks=self.seed_buffer.get(p_type, []),
+                k_reference=self.k_reference,
+            )
             
             # Generate
             # We do this in a loop or batch. For simplicity, loop.
@@ -58,12 +65,27 @@ class DatasetManager:
                 attempts += 1
                 try:
                     # Simple generation call
-                    generated = adapter.generate(
-                        prompt=prompt_text,
-                        max_new_tokens=256,
-                        temperature=0.8,
-                        do_sample=True
-                    )[0]
+                    try:
+                        generated_samples = adapter.generate(
+                            prompt=prompt_text,
+                            max_new_tokens=256,
+                            temperature=0.2,
+                            top_p=0.95,
+                            do_sample=True,
+                            num_return_sequences=self.proposer_num_return_sequences
+                        )
+                    except Exception:
+                        generated_samples = adapter.generate(
+                            prompt=prompt_text,
+                            max_new_tokens=256,
+                            temperature=0.2,
+                            top_p=0.95,
+                            do_sample=True,
+                            num_return_sequences=1,
+                        )
+                    if not generated_samples:
+                        continue
+                    generated = generated_samples[0]
                     
                     # Parse (using simple JSON extraction from utils)
                     from hf_parsing_utils import find_json_objects
@@ -86,7 +108,7 @@ class DatasetManager:
                                         task["origin"] = "seed"
                                         self.seed_buffer[p_type].append(task)
                                         valid_seeds += 1
-                                        print(f"    ✅ Seed {valid_seeds}/{num_seeds} generated.")
+                                        print(f"     Seed {valid_seeds}/{num_seeds} generated.")
                         except json.JSONDecodeError:
                             logger.warning(f"Failed to decode JSON from seed generation: {json_objects[0][:100]}...")
                 except Exception as e:
@@ -117,4 +139,5 @@ class DatasetManager:
         stats = {k: len(v) for k, v in self.seed_buffer.items()}
         stats.update({f"exp_{k}": len(v) for k, v in self.experience_buffer.items()})
         return stats
+
 

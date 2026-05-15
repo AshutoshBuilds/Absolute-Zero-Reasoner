@@ -94,7 +94,9 @@ def _configure_logging(use_rich: bool = True) -> None:
 
         class _AnsiSafeFormatter(logging.Formatter):
             def format(self, record):
-                record.msg = _strip_ansi(str(record.getMessage()))
+                merged = record.getMessage()
+                record.msg = _strip_ansi(str(merged))
+                record.args = ()
                 return super().format(record)
 
         handler.setFormatter(_AnsiSafeFormatter("%(name)s - %(levelname)s - %(message)s"))
@@ -122,7 +124,7 @@ class HyperparameterOptimizer:
     """Optimize hyperparameters for AZR training"""
     
     def __init__(self, 
-                 model_name: str = "Qwen/Qwen3.5-0.8B",
+                 model_name: str = "google/gemma-4-E4B",
                  n_trials: int = 50,
                  results_dir: str = "optimization_results"):
         self.model_name = _resolve_model_path(model_name)
@@ -432,7 +434,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Optimize AZR hyperparameters")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3.5-0.8B",
+    parser.add_argument("--model", type=str, default="google/gemma-4-E4B",
                         help="Model name or path")
     parser.add_argument("--n-trials", type=int, default=50,
                         help="Number of optimization trials")

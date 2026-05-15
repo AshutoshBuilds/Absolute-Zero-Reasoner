@@ -60,7 +60,10 @@ def configure_logging(use_rich: bool = True) -> None:
 
         class _AnsiSafeFormatter(logging.Formatter):
             def format(self, record):
-                record.msg = _strip_ansi(str(record.getMessage()))
+                if isinstance(record.msg, str):
+                    record.msg = _strip_ansi(record.msg)
+                if record.args:
+                    record.args = tuple(_strip_ansi(arg) if isinstance(arg, str) else arg for arg in record.args)
                 return super().format(record)
 
         handler.setFormatter(_AnsiSafeFormatter("%(name)s - %(levelname)s - %(message)s"))
@@ -80,7 +83,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Download a Hugging Face model snapshot to local cache.")
     parser.add_argument(
         "--model-id",
-        default="Qwen/Qwen3.5-0.8B",
+        default="google/gemma-4-E4B",
         help="Model repository id to download.",
     )
     parser.add_argument(
@@ -113,16 +116,19 @@ def main() -> None:
         os.makedirs(target_directory)
         logger.info(f"Created directory: {target_directory}")
 
-    logger.info(f"Starting download of {model_id} to {target_directory}...")
+    logger.info("Starting download of %s to %s...", model_id, target_directory)
     try:
         snapshot_download(
             repo_id=model_id,
             local_dir=target_directory
         )
-        logger.info(f"Successfully downloaded {model_id} to {target_directory}")
+        logger.info("Successfully downloaded %s to %s", model_id, target_directory)
     except Exception as e:
-        logger.error(f"An error occurred during download: {e}")
-        logger.error("Please check the model ID, your internet connection, and permissions for the target directory.")
+        logger.error("An error occurred during download: %r", e)
+        logger.error(
+            "Please check the model ID, your internet connection, and permissions for the target directory."
+        )
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

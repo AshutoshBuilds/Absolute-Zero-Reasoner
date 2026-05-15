@@ -19,6 +19,9 @@ ARCHIVED_CODE/
 Papers/
 Wheel_Files/
 our_initial_azr_prototype/
+benchmark_data/*/
+!benchmark_data/README.md
+
 __pycache__/
 .pytest_cache/
 run_small_stdout.log

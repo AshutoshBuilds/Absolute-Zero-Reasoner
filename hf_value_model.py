@@ -1,9 +1,16 @@
+import logging
+from typing import Optional, Type
+
 import torch
 import torch.nn as nn
 from transformers import PreTrainedModel, AutoConfig, AutoModelForCausalLM, PretrainedConfig
-from transformers.modeling_outputs import CausalLMOutputWithPast # For ValueModel's forward typing
-import logging
-from typing import Optional, Type
+from transformers.modeling_outputs import CausalLMOutputWithPast  # For ValueModel's forward typing
+
+from hf_transformers_compat import (
+    apply_azr_attention_env_once,
+    dtype_kwargs_for_from_pretrained,
+    explicit_attn_implementation_from_azr_env,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +40,8 @@ class ValueModel(PreTrainedModel):
         quantization_config = None,
     ):
         super().__init__(config)
-        
+        apply_azr_attention_env_once()
+
         # Ensure pooling_strategy is set on the config
         if not hasattr(self.config, 'pooling_strategy'):
             logger.info("ValueModel's config does not have 'pooling_strategy'. Setting default to 'last_token'.")
@@ -56,24 +64,44 @@ class ValueModel(PreTrainedModel):
             trust_remote_code=getattr(self.config, 'trust_remote_code', True),
         )
         
-        # Use an explicit device map to avoid meta-device initialization paths.
-        # Load core critic model on CPU first for robust checkpoint reloads on Windows,
-        # then move to the target device after wrapper initialization.
-        preferred_device_map = {"": "cpu"}
+        # Use explicit device-map behavior only when no quantization is configured.
+        # For quantized 4-bit loads, forcing {"": "cpu"} causes an unnecessary CPU->GPU
+        # transfer path during init, which can briefly duplicate memory.
+        core_model_kwargs = {
+            "config": actual_base_model_config,
+            "token": hf_auth_token,
+            "trust_remote_code": True,
+            "cache_dir": hf_cache_dir,
+            # Disable low-memory initialization with meta tensors for local checkpoint reloads.
+            "low_cpu_mem_usage": False,
+            # Ignore checkpoint / config shape differences (e.g., lm_head in actor checkpoints) during reload.
+            "ignore_mismatched_sizes": True,
+        }
+        core_model_kwargs.update(
+            dtype_kwargs_for_from_pretrained(AutoModelForCausalLM, torch_dtype_for_core_model)
+        )
+        embed_quant = getattr(actual_base_model_config, "quantization_config", None)
+        if quantization_config is not None and embed_quant is None:
+            core_model_kwargs["quantization_config"] = quantization_config
+        elif quantization_config is not None and embed_quant is not None:
+            logger.debug(
+                "Base config already defines quantization_config; omitting duplicate "
+                "quantization_config kwarg for core AutoModelForCausalLM.from_pretrained."
+            )
+        attn_impl = explicit_attn_implementation_from_azr_env()
+        if attn_impl is not None:
+            core_model_kwargs["attn_implementation"] = attn_impl
+        using_quantized_load = (quantization_config is not None) or (embed_quant is not None)
+        if not using_quantized_load:
+            # Keep a deterministic CPU-first load for non-quantized critics when needed for stability.
+            core_model_kwargs["device_map"] = {"": "cpu"}
+        else:
+            # Let quantized model loading manage placement to avoid temporary duplication.
+            core_model_kwargs.pop("device_map", None)
 
         self.core_model_for_value = AutoModelForCausalLM.from_pretrained(
             base_model_name_or_path,
-            config=actual_base_model_config,
-            token=hf_auth_token,
-            trust_remote_code=True,
-            cache_dir=hf_cache_dir,
-            torch_dtype=torch_dtype_for_core_model,
-            # Disable low-memory initialization with meta tensors for local checkpoint reloads.
-            low_cpu_mem_usage=False,
-            quantization_config=quantization_config,
-            device_map=preferred_device_map,
-            # Ignore checkpoint / config shape differences (e.g., lm_head in actor checkpoints) during reload.
-            ignore_mismatched_sizes=True
+            **core_model_kwargs
         )
         
         logger.info(f"Attempting to modify LayerNorm eps for ValueModel's core_model_for_value ({base_model_name_or_path})...")
@@ -120,9 +148,7 @@ class ValueModel(PreTrainedModel):
         if not is_autocast:
             expected_dtype = self.core_model_for_value.dtype
             if core_attention_mask is not None and core_attention_mask.is_floating_point() and core_attention_mask.dtype != expected_dtype:
-                core_attention_mask = core_attention_mask.to(expected_dtype)
-            elif core_attention_mask is not None and core_attention_mask.dtype == torch.int64 and expected_dtype.is_floating_point:
-                logger.warning(f"ValueModel.forward: attention_mask was int64. Casting to {expected_dtype}. This might indicate an upstream issue.")
+                logger.debug(f"ValueModel.forward: casting attention_mask from {core_attention_mask.dtype} to {expected_dtype} for critic consistency.")
                 core_attention_mask = core_attention_mask.to(expected_dtype)
 
             if core_past_key_values is not None:
@@ -144,6 +170,8 @@ class ValueModel(PreTrainedModel):
             if core_inputs_embeds is not None and core_inputs_embeds.is_floating_point() and core_inputs_embeds.dtype != expected_dtype:
                 core_inputs_embeds = core_inputs_embeds.to(expected_dtype)
 
+        effective_output_hidden_states = bool(output_hidden_states) if output_hidden_states is not None else True
+
         transformer_outputs = self.core_model_for_value(
             input_ids=core_input_ids,
             attention_mask=core_attention_mask,
@@ -152,11 +180,16 @@ class ValueModel(PreTrainedModel):
             token_type_ids=core_token_type_ids,
             inputs_embeds=core_inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=True,
+            output_hidden_states=effective_output_hidden_states,
             return_dict=True
         )
+        last_hidden_states_before_ln_f = (
+            transformer_outputs.hidden_states[-1]
+            if transformer_outputs.hidden_states is not None and len(transformer_outputs.hidden_states) > 0
+            else transformer_outputs.last_hidden_state
+        )
 
-        last_hidden_states_before_ln_f = transformer_outputs.hidden_states[-1]
+        hidden_states_for_output = transformer_outputs.hidden_states if effective_output_hidden_states else None
         
         pooled_output = None
         if input_ids is not None:
@@ -246,7 +279,7 @@ class ValueModel(PreTrainedModel):
             loss=None, # No loss computed here
             logits=None, # ValueModel doesn't produce sequence logits in the traditional sense
             past_key_values=transformer_outputs.past_key_values,
-            hidden_states=transformer_outputs.hidden_states, # from core model
+            hidden_states=hidden_states_for_output, # from core model only when requested
             attentions=transformer_outputs.attentions,  # from core model
             # custom field for value
             # custom_fields={"value": value} 

@@ -74,3 +74,16 @@ bash scripts/run_remote_official_azr.sh 7b
   - official: run against explicit official checkout path and confirm Ray/vLLM training process starts and logs worker initialization.
 - Compare final metrics with `run_pre_post_benchmarks.py` protocols as configured.
 
+### Self-evolution pilot (new)
+
+- Add harness-first optimization loop for conservative rounds:
+  - Single-run harness: `scripts/run_research_harness.py`
+  - Multi-round controller: `orchestrate_self_evolution.py`
+  - Shared contracts: `autoevo/contracts.py`, `autoevo/evidence.py`
+- Keep controller in conservative mode for now:
+  - ≤3 rounds
+  - warm-start baseline from latest accepted checkpoint
+  - strict return-code checks + regression guardrails
+- Future phase:
+  - add low-risk code patch proposals after repeated safe trainer-parameter rounds.
+

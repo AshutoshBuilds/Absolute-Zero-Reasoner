@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import torch
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Assuming ExperienceBuffer has save/load methods as used in the original trainer
 # from experience_buffer import ExperienceBuffer # This might be needed if we type hint more strictly
@@ -93,8 +93,8 @@ def update_curriculum_difficulty(trainer_instance, epoch: int):
     reward_manager.update_difficulty(trainer_instance.current_difficulty) # Update reward manager
 
 def save_checkpoint(trainer_instance,
-                     checkpoint_name: str | None = None,
-                     epoch: int | None = None,
+                     checkpoint_name: Optional[str] = None,
+                     epoch: Optional[int] = None,
                      optimizer=None,
                      scaler=None,
                      metrics=None,

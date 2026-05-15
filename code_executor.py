@@ -8,9 +8,15 @@ import re # Added for finding function name
 import argparse
 import os
 import math
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Import AZR common utils for input evaluation and output comparison
+try:
+    from hf_parsing_utils import strip_leading_trailing_code_fences
+except ImportError:
+    def strip_leading_trailing_code_fences(x: str) -> str:
+        return x if isinstance(x, str) else ""
+
 try:
     from azr_common_utils import _evaluate_input, _compare_outputs
 except ImportError:
@@ -193,6 +199,7 @@ class CodeExecutor:
                 'execution_time': Time taken for execution in seconds (or for pre-checks).
         """
         start_time = time.time()
+        code_string = strip_leading_trailing_code_fences(code_string)
 
         # 1. Check for forbidden imports
         forbidden_imports_found = self._check_forbidden_imports(code_string)
@@ -250,12 +257,13 @@ class CodeExecutor:
     # Alias for compatibility with AZR's PythonExecutor
     run_code = execute_code
     
-    def execute_script(self, code_string: str, timeout_seconds: int | None = None) -> dict:
+    def execute_script(self, code_string: str, timeout_seconds: Optional[int] = None) -> dict:
         """
         Execute arbitrary code (which may contain inline asserts/tests) in a sandboxed subprocess.
         Returns a dict with keys: output, return_value(None), error, execution_time, success.
         """
         start_time = time.time()
+        code_string = strip_leading_trailing_code_fences(code_string)
 
         # Check for forbidden imports before running
         forbidden_imports_found = self._check_forbidden_imports(code_string)
@@ -308,7 +316,7 @@ class CodeExecutor:
         result['success'] = result.get('error') in (None, '')
         return result
 
-    def execute(self, code: str, test_input: str = "", timeout: int | None = None) -> dict:
+    def execute(self, code: str, test_input: str = "", timeout: Optional[int] = None) -> dict:
         """
         Compatibility wrapper expected by evaluate_benchmarks.py.
         Ignores test_input; runs code as a script and returns a dict with 'success' key among others.

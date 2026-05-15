@@ -51,7 +51,7 @@ def _resolve_model_path(model_name: str) -> str:
 class AZRSystemTester:
     """Comprehensive testing suite for AZR system"""
     
-    def __init__(self, model_name: str = "Qwen/Qwen3.5-0.8B", 
+    def __init__(self, model_name: str = "google/gemma-4-E4B", 
                  test_dir: str = "test_results"):
         self.model_name = _resolve_model_path(model_name)
         self.test_dir = Path(test_dir)
@@ -502,7 +502,7 @@ def main():
     
     # Initialize tester
     tester = AZRSystemTester(
-        model_name="Qwen/Qwen3.5-0.8B",  # Use lightweight default baseline model for testing
+        model_name="google/gemma-4-E4B",  # Use lightweight default baseline model for testing
         test_dir="test_results"
     )
     
@@ -538,7 +538,7 @@ if __name__ == "__main__":
 
 def test_azr_system_e2e_smoke():
     """Pytest entry point for the comprehensive AZR system smoke test."""
-    tester = AZRSystemTester(model_name="Qwen/Qwen3.5-0.8B", test_dir="test_results")
+    tester = AZRSystemTester(model_name="google/gemma-4-E4B", test_dir="test_results")
     results = tester.run_all_tests()
 
     assert "error" not in results, f"AZR system smoke test reported error: {results.get('error')}"

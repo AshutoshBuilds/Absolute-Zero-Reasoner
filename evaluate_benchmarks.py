@@ -1,8 +1,11 @@
-"""
-Evaluation script for AZR model on standard benchmarks.
+"""Evaluation script for AZR model on standard benchmarks.
+
 Evaluates on:
-- Code: HumanEval, MBPP, CruxEval, LiveCodeBench
+- Code: HumanEval, MBPP
 - Math: GSM8K, MATH
+- ProgramBench (optional): aggregate scores from an existing upstream eval run directory.
+  Pass ``--benchmarks programbench`` and ``--programbench-run-dir <dir>`` where ``dir``
+  contains nested ``*/*.eval.json`` after running ``programbench eval`` on a supported host.
 """
 
 import os
@@ -11,16 +14,17 @@ import time
 import torch
 import numpy as np
 import random
-from typing import Dict, List, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 from pathlib import Path
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from hf_benchmark_data import apply_benchmark_offline_env, load_azr_benchmark_split
 import logging
 from tqdm import tqdm
 import re
 import math
+import numbers
 
 # Import our modules
 from azr_hf_adapter import HuggingFaceAdapter
@@ -42,6 +46,7 @@ except Exception:
 # Configure logging
 logger = logging.getLogger(__name__)
 _RICH_CONSOLE = Console(highlight=False, force_terminal=True) if _RICH_AVAILABLE else None
+TASK_PROGRESS_EVERY = 25
 
 
 def _apply_cpu_cap(cpu_cap_percent: float) -> int:
@@ -105,6 +110,109 @@ def _get_accuracy_style(accuracy):
     return "red"
 
 
+def _format_elapsed(seconds: float) -> str:
+    minutes, secs = divmod(max(0.0, float(seconds)), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{int(hours):02d}:{int(minutes):02d}:{secs:05.2f}"
+
+
+def _truthy_env(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _optional_positive_int_env(name: str) -> Optional[int]:
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return None
+    v = int(raw)
+    return v if v > 0 else None
+
+
+def _default_benchmark_batch_size(fast: bool) -> int:
+    raw = (os.environ.get("AZR_BENCHMARK_BATCH_SIZE") or "").strip()
+    if raw:
+        return max(1, int(raw))
+    return 4 if fast else 1
+
+
+def _can_benchmark_microbatch(gen_kwargs: dict) -> bool:
+    return int(gen_kwargs.get("num_return_sequences", 1) or 1) == 1 and int(gen_kwargs.get("num_beams", 1) or 1) <= 1
+
+
+def _benchmark_gen_microbatch_size(batch_size: int, gen_kwargs: dict) -> int:
+    if batch_size <= 1:
+        return 1
+    if not _can_benchmark_microbatch(gen_kwargs):
+        return 1
+    return batch_size
+
+
+def resolve_max_new_tokens_by_benchmark(fast: bool) -> Optional[Dict[str, int]]:
+    """Tighter caps when AZR_BENCHMARK_FAST=1; None means use evaluator defaults."""
+    if not fast:
+        return None
+    return {"humaneval": 256, "mbpp": 128, "gsm8k": 256, "math": 512}
+
+
+def apply_benchmark_speed_from_env(args) -> None:
+    """Apply AZR_BENCHMARK_FAST, AZR_BENCHMARK_MAX_TASKS_PER_DATASET, AZR_BENCHMARK_BATCH_SIZE to parsed CLI args."""
+    fast = _truthy_env("AZR_BENCHMARK_FAST")
+    args.benchmark_fast = fast
+    cap = _optional_positive_int_env("AZR_BENCHMARK_MAX_TASKS_PER_DATASET")
+    if cap is not None and args.limit > cap:
+        logger.info(
+            "AZR_BENCHMARK_MAX_TASKS_PER_DATASET=%s caps --limit from %s to %s",
+            cap,
+            args.limit,
+            cap,
+        )
+        args.limit = cap
+    if fast and args.samples_per_task > 1:
+        logger.info(
+            "AZR_BENCHMARK_FAST=1: clamping --samples-per-task from %s to 1 for wall-clock speed",
+            args.samples_per_task,
+        )
+        args.samples_per_task = 1
+    try:
+        args.benchmark_batch_size = _default_benchmark_batch_size(fast)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid AZR_BENCHMARK_BATCH_SIZE: {os.environ.get('AZR_BENCHMARK_BATCH_SIZE')!r}"
+        ) from e
+    if fast:
+        logger.info(
+            "AZR_BENCHMARK_FAST=1: benchmark_batch_size=%s (default 4 when AZR_BENCHMARK_BATCH_SIZE unset; set AZR_BENCHMARK_BATCH_SIZE=1 to disable micro-batching)",
+            args.benchmark_batch_size,
+        )
+    if args.benchmark_batch_size > 1 and not fast:
+        logger.info(
+            "AZR_BENCHMARK_BATCH_SIZE=%s: micro-batching when num_return_sequences=1",
+            args.benchmark_batch_size,
+        )
+
+
+def _log_task_heartbeat(
+    benchmark_name: str,
+    completed: int,
+    total: Optional[int],
+    start_ts: float,
+    correct: Optional[int] = None,
+) -> None:
+    elapsed = time.perf_counter() - start_ts
+    throughput = completed / elapsed if elapsed > 0 else 0.0
+    percent = ""
+    if total and total > 0:
+        percent = f" ({(completed / total * 100):.1f}% complete)"
+    correct_text = ""
+    if correct is not None:
+        correct_text = f" | correct={correct}"
+    logger.info(
+        f"[{benchmark_name}] task {completed}"
+        f"{f'/ {total}' if total else ''}{percent}{correct_text} | "
+        f"elapsed={_format_elapsed(elapsed)} | throughput={throughput:.2f} tasks/s"
+    )
+
+
 def configure_logging(results_dir: str, use_rich: bool = True) -> None:
     """Configure logging handlers for a specific output directory."""
     Path(results_dir).mkdir(exist_ok=True)
@@ -133,6 +241,22 @@ def configure_logging(results_dir: str, use_rich: bool = True) -> None:
     )
 
 
+def _is_numeric_score(value) -> bool:
+    """True for real scalars suitable for accuracy / aggregate math (excludes bool)."""
+    if value is None or isinstance(value, bool):
+        return False
+    if isinstance(value, numbers.Real):
+        return True
+    # NumPy scalar / other .item() scalars loaded from JSON-adjacent pipelines
+    if hasattr(value, "item"):
+        try:
+            inner = value.item()
+        except Exception:
+            return False
+        return isinstance(inner, numbers.Real) and not isinstance(inner, bool)
+    return False
+
+
 class BenchmarkEvaluator:
     """Evaluator for standard benchmarks"""
     
@@ -140,7 +264,12 @@ class BenchmarkEvaluator:
         self,
         model_name: str,
         results_dir: str = "evaluation_results",
-        use_separate_value_model: bool = False,
+        use_separate_value_model: bool = True,
+        generation_temperature: float = 0.2,
+        top_p: float = 0.95,
+        samples_per_task: int = 8,
+        load_in_4bit: bool = False,
+        max_new_tokens_by_benchmark: Optional[Dict[str, int]] = None,
     ):
         # Resolve to local copy under models/<basename> if available
         base_name = Path(model_name).name if (os.path.sep in model_name or '/' in model_name) else model_name.split('/')[-1]
@@ -157,12 +286,29 @@ class BenchmarkEvaluator:
         self.results_dir.mkdir(exist_ok=True)
         self.hf_cache_dir = Path("models") / ".hf_cache"
         self.hf_cache_dir.mkdir(exist_ok=True)
+        self.generation_temperature = generation_temperature
+        self.generation_top_p = top_p
+        self.samples_per_task = max(1, int(samples_per_task))
+        self.generation_kwargs = build_code_gen_kwargs(
+            self.samples_per_task,
+            self.generation_temperature,
+            self.generation_top_p,
+        )
+        self.max_new_tokens: Dict[str, int] = {
+            "humaneval": 512,
+            "mbpp": 256,
+            "gsm8k": 512,
+            "math": 1024,
+        }
+        if max_new_tokens_by_benchmark:
+            self.max_new_tokens.update(max_new_tokens_by_benchmark)
         
         # Initialize model adapter with local cache
         self.adapter = HuggingFaceAdapter(
             self.model_name,
             hf_cache_dir=str(self.hf_cache_dir),
             use_separate_value_model=use_separate_value_model,
+            load_in_4bit=load_in_4bit,
         )
         
         # Initialize code executor for code benchmarks
@@ -172,17 +318,20 @@ class BenchmarkEvaluator:
     
     def evaluate_humaneval(self) -> Dict:
         """Evaluate on HumanEval benchmark"""
-        logger.info("Evaluating on HumanEval...")
+        logger.info("Starting HumanEval evaluation...")
         
         try:
             # Load HumanEval dataset
-            dataset = load_dataset("openai_humaneval", split="test")
+            logger.info("HumanEval: loading dataset (openai_humaneval, split=test)...")
+            dataset = load_azr_benchmark_split("openai_humaneval", "test", None, logger=logger)
+            logger.info(f"HumanEval: dataset loaded with {len(dataset)} tasks")
             
             results = []
             correct = 0
             total = len(dataset)
+            start_ts = time.perf_counter()
             
-            for idx, example in enumerate(tqdm(dataset, desc="HumanEval")):
+            for idx, example in enumerate(tqdm(dataset, desc="HumanEval"), start=1):
                 task_id = example['task_id']
                 prompt = example['prompt']
                 test = example['test']
@@ -191,9 +340,8 @@ class BenchmarkEvaluator:
                 # Generate solution
                 generated = self.adapter.generate(
                     prompt,
-                    max_new_tokens=512,
-                    temperature=0.2,
-                    top_p=0.95
+                    max_new_tokens=self.max_new_tokens["humaneval"],
+                    **self.generation_kwargs
                 )[0]
                 
                 # Extract code from generation
@@ -215,6 +363,9 @@ class BenchmarkEvaluator:
                 passed = result['success'] and not result.get('error')
                 if passed:
                     correct += 1
+
+                if idx % TASK_PROGRESS_EVERY == 0 or idx == total:
+                    _log_task_heartbeat("HumanEval", idx, total, start_ts, correct=correct)
                 
                 results.append({
                     'task_id': task_id,
@@ -222,7 +373,15 @@ class BenchmarkEvaluator:
                     'generated': code,
                     'error': result.get('error', '')
                 })
-            
+
+            elapsed = time.perf_counter() - start_ts
+            logger.info(
+                "HumanEval complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                total,
+                correct,
+                (correct / total if total else 0.0),
+                _format_elapsed(elapsed),
+            )
             accuracy = correct / total if total > 0 else 0
             
             return {
@@ -239,17 +398,20 @@ class BenchmarkEvaluator:
     
     def evaluate_mbpp(self) -> Dict:
         """Evaluate on MBPP benchmark"""
-        logger.info("Evaluating on MBPP...")
+        logger.info("Starting MBPP evaluation...")
         
         try:
             # Load MBPP dataset
-            dataset = load_dataset("mbpp", "sanitized", split="test")
+            logger.info("MBPP: loading dataset (mbpp, sanitized, split=test)...")
+            dataset = load_azr_benchmark_split("mbpp", "test", "sanitized", logger=logger)
+            logger.info(f"MBPP: dataset loaded with {len(dataset)} tasks")
             
             results = []
             correct = 0
             total = len(dataset)
+            start_ts = time.perf_counter()
             
-            for idx, example in enumerate(tqdm(dataset, desc="MBPP")):
+            for idx, example in enumerate(tqdm(dataset, desc="MBPP"), start=1):
                 task_id = example.get('task_id', idx)
                 # Some variants use 'text', others may use 'prompt' or 'description'
                 description = example.get('text') or example.get('prompt') or example.get('description') or ""
@@ -264,9 +426,8 @@ class BenchmarkEvaluator:
                 # Generate solution
                 generated = self.adapter.generate(
                     prompt,
-                    max_new_tokens=256,
-                    temperature=0.2,
-                    top_p=0.95
+                    max_new_tokens=self.max_new_tokens["mbpp"],
+                    **self.generation_kwargs
                 )[0]
                 
                 # Extract code
@@ -290,13 +451,24 @@ class BenchmarkEvaluator:
                 
                 if all_passed:
                     correct += 1
+
+                if idx % TASK_PROGRESS_EVERY == 0 or idx == total:
+                    _log_task_heartbeat("MBPP", idx, total, start_ts, correct=correct)
                 
                 results.append({
                     'task_id': task_id,
                     'passed': all_passed,
                     'generated': code
                 })
-            
+
+            elapsed = time.perf_counter() - start_ts
+            logger.info(
+                "MBPP complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                total,
+                correct,
+                (correct / total if total else 0.0),
+                _format_elapsed(elapsed),
+            )
             accuracy = correct / total if total > 0 else 0
             
             return {
@@ -313,17 +485,21 @@ class BenchmarkEvaluator:
     
     def evaluate_gsm8k(self) -> Dict:
         """Evaluate on GSM8K benchmark"""
-        logger.info("Evaluating on GSM8K...")
+        logger.info("Starting GSM8K evaluation...")
         
         try:
             # Load GSM8K dataset
-            dataset = load_dataset("gsm8k", "main", split="test")
+            logger.info("GSM8K: loading dataset (gsm8k, main, split=test)...")
+            dataset = load_azr_benchmark_split("gsm8k", "test", "main", logger=logger)
+            logger.info(f"GSM8K: raw dataset size = {len(dataset)}")
             
             results = []
             correct = 0
             total = min(len(dataset), 500)  # Evaluate on subset for speed
+            subset = dataset.select(range(total))
+            start_ts = time.perf_counter()
             
-            for idx, example in enumerate(tqdm(dataset.select(range(total)), desc="GSM8K")):
+            for idx, example in enumerate(tqdm(subset, desc="GSM8K"), start=1):
                 question = example['question']
                 answer = example['answer']
                 
@@ -341,9 +517,8 @@ Let's solve this step by step:
                 # Generate solution
                 generated = self.adapter.generate(
                     prompt,
-                    max_new_tokens=512,
-                    temperature=0.2,
-                    top_p=0.95
+                    max_new_tokens=self.max_new_tokens["gsm8k"],
+                    **self.generation_kwargs
                 )[0]
                 
                 # Extract answer (look for patterns like "= X" or "answer is X")
@@ -369,11 +544,14 @@ Let's solve this step by step:
                         pred_num = float(predicted_answer)
                         true_num = float(true_answer)
                         is_correct = abs(pred_num - true_num) < 1e-5
-                    except:
+                    except (ValueError, TypeError):
                         pass
                 
                 if is_correct:
                     correct += 1
+
+                if idx % TASK_PROGRESS_EVERY == 0 or idx == total:
+                    _log_task_heartbeat("GSM8K", idx, total, start_ts, correct=correct)
                 
                 results.append({
                     'idx': idx,
@@ -382,7 +560,15 @@ Let's solve this step by step:
                     'true': true_answer,
                     'generated': generated
                 })
-            
+
+            elapsed = time.perf_counter() - start_ts
+            logger.info(
+                "GSM8K complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                total,
+                correct,
+                (correct / total if total else 0.0),
+                _format_elapsed(elapsed),
+            )
             accuracy = correct / total if total > 0 else 0
             
             return {
@@ -399,17 +585,21 @@ Let's solve this step by step:
     
     def evaluate_math(self) -> Dict:
         """Evaluate on MATH benchmark"""
-        logger.info("Evaluating on MATH...")
+        logger.info("Starting MATH evaluation...")
         
         try:
             # Load MATH dataset
-            dataset = load_dataset("hendrycks/competition_math", split="test")
+            logger.info("MATH: loading dataset (hendrycks/competition_math, split=test)...")
+            dataset = load_azr_benchmark_split("hendrycks/competition_math", "test", None, logger=logger)
+            logger.info(f"MATH: raw dataset size = {len(dataset)}")
             
             results = []
             correct = 0
             total = min(len(dataset), 200)  # Evaluate on subset for speed
+            subset = dataset.select(range(total))
+            start_ts = time.perf_counter()
             
-            for idx, example in enumerate(tqdm(dataset.select(range(total)), desc="MATH")):
+            for idx, example in enumerate(tqdm(subset, desc="MATH"), start=1):
                 problem = example['problem']
                 solution = example['solution']
                 level = example['level']
@@ -426,9 +616,8 @@ Solution:
                 # Generate solution
                 generated = self.adapter.generate(
                     prompt,
-                    max_new_tokens=1024,
-                    temperature=0.2,
-                    top_p=0.95
+                    max_new_tokens=self.max_new_tokens["math"],
+                    **self.generation_kwargs
                 )[0]
                 
                 # Extract answer (MATH uses boxed format)
@@ -447,6 +636,9 @@ Solution:
                 
                 if is_correct:
                     correct += 1
+
+                if idx % TASK_PROGRESS_EVERY == 0 or idx == total:
+                    _log_task_heartbeat("MATH", idx, total, start_ts, correct=correct)
                 
                 results.append({
                     'idx': idx,
@@ -456,7 +648,15 @@ Solution:
                     'predicted': predicted_answer,
                     'true': true_answer
                 })
-            
+
+            elapsed = time.perf_counter() - start_ts
+            logger.info(
+                "MATH complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                total,
+                correct,
+                (correct / total if total else 0.0),
+                _format_elapsed(elapsed),
+            )
             accuracy = correct / total if total > 0 else 0
             
             # Calculate accuracy by level
@@ -572,8 +772,10 @@ Solution:
             table.add_column("Correct")
             table.add_column("Total")
             for benchmark, data in results.items():
-                if isinstance(data, dict) and 'accuracy' in data:
-                    accuracy = data['accuracy']
+                bn = str(benchmark).lower()
+                acc = data.get("accuracy") if isinstance(data, dict) else None
+                if isinstance(data, dict) and _is_numeric_score(acc):
+                    accuracy = float(acc)
                     total = data.get('total', 'N/A')
                     correct = data.get('correct', 'N/A')
                     style = _get_accuracy_style(accuracy)
@@ -585,9 +787,9 @@ Solution:
                         str(total),
                     )
 
-                    if benchmark in code_benchmarks:
+                    if bn in code_benchmarks:
                         code_scores.append(accuracy)
-                    elif benchmark in math_benchmarks:
+                    elif bn in math_benchmarks:
                         math_scores.append(accuracy)
                 elif isinstance(data, dict):
                     table.add_row(
@@ -617,14 +819,17 @@ Solution:
             print(f"EVALUATION SUMMARY - {self.model_name}")
             print("="*60)
             for benchmark, data in results.items():
-                if isinstance(data, dict) and 'accuracy' in data:
-                    print(f"{benchmark.upper()}: {data['accuracy']:.2%} "
+                bn = str(benchmark).lower()
+                acc = data.get("accuracy") if isinstance(data, dict) else None
+                if isinstance(data, dict) and _is_numeric_score(acc):
+                    accuracy = float(acc)
+                    print(f"{benchmark.upper()}: {accuracy:.2%} "
                           f"({data.get('correct', 0)}/{data.get('total', 0)})")
 
-                    if benchmark in code_benchmarks:
-                        code_scores.append(data['accuracy'])
-                    elif benchmark in math_benchmarks:
-                        math_scores.append(data['accuracy'])
+                    if bn in code_benchmarks:
+                        code_scores.append(accuracy)
+                    elif bn in math_benchmarks:
+                        math_scores.append(accuracy)
 
             print("-"*60)
 
@@ -661,7 +866,7 @@ def extract_python_code(text: str) -> str:
             return text
     return text
 
-def infer_function_name_from_tests(tests: list[str]) -> str | None:
+def infer_function_name_from_tests(tests: list[str]) -> Optional[str]:
     """Attempt to infer the required function name from MBPP tests."""
     candidates = []
     for t in tests or []:
@@ -676,17 +881,94 @@ def infer_function_name_from_tests(tests: list[str]) -> str | None:
                 candidates.append(m2.group(1))
     return candidates[0] if candidates else None
 
+def evaluate_programbench_run_dir(run_dir: str) -> Dict[str, Any]:
+    """Aggregate scores from an existing ProgramBench agent run (nested ``*/*.eval.json``).
+
+    Full instance evaluation (Docker, Linux x86_64) is done by the upstream ``programbench`` tool;
+    this helper mirrors ``programbench info`` so AZR can report mean instance score alongside
+    HumanEval/MBPP/GSM8K. See https://github.com/AshutoshBuilds/ProgramBench
+    """
+    run_path = Path(run_dir).expanduser()
+    if not str(run_dir).strip():
+        return {
+            "benchmark": "ProgramBench",
+            "error": (
+                "ProgramBench was requested but no run directory was set. Pass "
+                "--programbench-run-dir for evaluate_benchmarks, or set baseline/improved run dirs "
+                "from run_pre_post_benchmarks. Omit ``programbench`` from --benchmarks if you are "
+                "not using ProgramBench yet."
+            ),
+        }
+    if not run_path.is_dir():
+        return {"benchmark": "ProgramBench", "error": f"ProgramBench run dir not found: {run_path}"}
+
+    try:
+        from programbench.eval.eval import EvaluationResult
+        from programbench.eval.eval_batch import BatchEvalSummary, InstanceEvalSummary
+        from programbench.utils.load_data import get_active_branches, get_ignored_tests, load_all_instances
+    except ImportError:
+        return {
+            "benchmark": "ProgramBench",
+            "error": (
+                "programbench is not installed. pip install programbench "
+                "(https://github.com/AshutoshBuilds/ProgramBench)"
+            ),
+        }
+
+    eval_paths = sorted(run_path.glob("*/*.eval.json"))
+    if not eval_paths:
+        return {
+            "benchmark": "ProgramBench",
+            "error": (
+                f"No instance eval files (pattern: <instance>/*.eval.json) under {run_path}. "
+                "After `programbench eval <run_dir>` on a supported host, point --programbench-run-dir at that run directory."
+            ),
+        }
+
+    instances = {i["instance_id"]: i for i in load_all_instances(include_tests=True)}
+    summaries = []
+    for p in eval_paths:
+        iid = p.parent.name
+        result = EvaluationResult.model_validate_json(p.read_text(encoding="utf-8"))
+        inst = instances.get(iid)
+        if inst is not None:
+            active = get_active_branches(inst)
+            ignored_tests = get_ignored_tests(inst)
+            ignored_branches = {b for b in result.test_branches if b not in set(active)}
+            result = result.for_branches(active).without_ignored(ignored_tests)
+            if ignored_branches:
+                result.warnings = [
+                    w for w in result.warnings if not any(f"branch {b}" in w for b in ignored_branches)
+                ]
+        summaries.append(InstanceEvalSummary.from_eval_result(iid, result))
+
+    batch = BatchEvalSummary(summaries=summaries)
+    n = len(summaries)
+    solved = sum(1 for s in summaries if s.score >= 1.0 - 1e-12)
+    short_results = [{"instance_id": s.instance_id, "score": s.score} for s in summaries[:200]]
+    return {
+        "benchmark": "ProgramBench",
+        "total": n,
+        "correct": solved,
+        "accuracy": float(batch.average_pass_rate),
+        "note": (
+            "accuracy = mean per-instance score; correct = count with score==1 "
+            "(aligned with programbench info)."
+        ),
+        "results": short_results,
+    }
+
+
 def build_code_gen_kwargs(samples_per_task: int, temperature: float, top_p: float) -> dict:
     """Return generation kwargs for code tasks supporting greedy, beam, or sampling modes.
-    - If samples_per_task <= 1: greedy decoding
+    - If samples_per_task <= 1: greedy decoding (no temperature/top_p — avoids Transformers unused-kwarg warnings)
     - If samples_per_task > 1 and temperature > 0: sampling with num_return_sequences=samples_per_task
     - If samples_per_task > 1 and temperature <= 0: beam search with num_beams=num_return_sequences=samples_per_task
     """
     if samples_per_task <= 1:
+        # Omit temperature/top_p when not sampling — avoids Transformers "may be ignored" warnings.
         return {
             'do_sample': False,
-            'temperature': 0.0,
-            'top_p': 1.0,
             'num_return_sequences': 1,
         }
     if temperature and temperature > 0:
@@ -699,8 +981,6 @@ def build_code_gen_kwargs(samples_per_task: int, temperature: float, top_p: floa
     # Beam search path
     return {
         'do_sample': False,
-        'temperature': 0.0,
-        'top_p': 1.0,
         'num_beams': samples_per_task,
         'num_return_sequences': samples_per_task,
     }
@@ -711,7 +991,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Evaluate AZR model on benchmarks")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3.5-0.8B",
+    parser.add_argument("--model", type=str, default="google/gemma-4-E4B",
                         help="Model name or path")
     parser.add_argument("--benchmarks", type=str, nargs='+', 
                         default=['humaneval', 'mbpp', 'gsm8k'],
@@ -719,20 +999,21 @@ def main():
     parser.add_argument("--results-dir", type=str, default="evaluation_results",
                         help="Directory to save results")
     parser.add_argument("--limit", type=int, default=50,
-                        help="Max samples per benchmark for quick evaluation (applies to supported datasets)")
-    parser.add_argument("--samples-per-task", type=int, default=1,
+                        help="Max samples per benchmark (HumanEval/MBPP/GSM8K/MATH capped path); may be capped lower by AZR_BENCHMARK_MAX_TASKS_PER_DATASET")
+    parser.add_argument("--samples-per-task", type=int, default=8,
                         help="Number of generations per task (used for approximate pass@k)")
     parser.add_argument("--passk", type=int, default=1,
                         help="Accept task as passed if any of k samples succeed (approx pass@k)")
-    parser.add_argument("--temperature", type=float, default=0.6,
+    parser.add_argument("--temperature", type=float, default=0.2,
                         help="Generation temperature")
     parser.add_argument("--top-p", type=float, default=0.95,
                         help="Generation top_p")
+    parser.add_argument("--k-reference", type=int, default=6, help="Number of few-shot examples for proposer prompts")
     parser.add_argument(
         "--use-separate-value-model",
-        action="store_true",
-        default=False,
-        help="Enable separate critic value model path (falls back to single-model when False)"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Load actor + critic ValueModel (paper-style PPO). Use --no-use-separate-value-model for unified actor-critic.",
     )
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     parser.add_argument(
@@ -747,23 +1028,69 @@ def main():
         default=20.0,
         help="CPU cap percentage (0-100) for this process",
     )
- 
+    parser.add_argument(
+        "--programbench-run-dir",
+        type=str,
+        default="",
+        help=(
+            "Directory with ProgramBench per-instance *.eval.json (after `programbench eval`). "
+            "See https://github.com/AshutoshBuilds/ProgramBench"
+        ),
+    )
+    parser.add_argument(
+        "--use-4bit",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Load base weights in 4-bit when bitsandbytes is available. "
+            "If omitted, uses AZR_USE_4BIT from the environment when set; otherwise matches hf_trainer (off)."
+        ),
+    )
+
     args = parser.parse_args()
+    apply_benchmark_offline_env()
+    if args.use_4bit is None:
+        raw = (os.environ.get("AZR_USE_4BIT") or "").strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            args.use_4bit = True
+        elif raw in ("0", "false", "no", "off", ""):
+            args.use_4bit = False
+        else:
+            raise ValueError(
+                f"Invalid AZR_USE_4BIT environment value: {os.environ.get('AZR_USE_4BIT')!r}. "
+                "Use true/false, 1/0, yes/no, or on/off."
+            )
     args.benchmarks = list(dict.fromkeys(
         str(item).strip().lower() for item in args.benchmarks
     ))
+    # Accept `humaneval,mbpp` as a single argv token (common from shells / env) so eval branches run.
+    _bench_flat: list[str] = []
+    for item in args.benchmarks:
+        for part in str(item).split(","):
+            p = part.strip().lower()
+            if p:
+                _bench_flat.append(p)
+    args.benchmarks = list(dict.fromkeys(_bench_flat))
     _apply_cpu_cap(args.cpu_cap)
  
     configure_logging(args.results_dir, use_rich=args.rich)
 
     if args.seed is not None:
         set_global_seed(args.seed)
-    
+
+    apply_benchmark_speed_from_env(args)
+
+    tok_profile = resolve_max_new_tokens_by_benchmark(args.benchmark_fast)
     # Initialize evaluator
     evaluator = BenchmarkEvaluator(
         model_name=args.model,
         results_dir=args.results_dir,
         use_separate_value_model=args.use_separate_value_model,
+        generation_temperature=args.temperature,
+        top_p=args.top_p,
+        samples_per_task=args.samples_per_task,
+        load_in_4bit=args.use_4bit,
+        max_new_tokens_by_benchmark=tok_profile,
     )
     
     # Run evaluations
@@ -773,43 +1100,96 @@ def main():
         results = {}
         if 'humaneval' in args.benchmarks:
             # HumanEval has ~164 tasks; cap by args.limit
-            original_fn = evaluator.evaluate_humaneval
             def eval_he_capped():
                 try:
-                    dataset = load_dataset("openai_humaneval", split="test")
+                    logger.info("HumanEval (capped): loading dataset (openai_humaneval, split=test)...")
+                    dataset = load_azr_benchmark_split("openai_humaneval", "test", None, logger=logger)
                     subset = dataset.select(range(min(len(dataset), args.limit)))
+                    logger.info(f"HumanEval (capped): dataset loaded with {len(subset)} tasks")
                     # Inline eval mirroring evaluate_humaneval but using subset
                     logger.info("Evaluating on HumanEval (capped)...")
-                    correct = 0; results_local = []
-                    for example in tqdm(subset, desc="HumanEval"):
-                        task_id = example['task_id']; prompt = example['prompt']; test = example['test']; entry_point = example['entry_point']
-                        # Enforce function name and code-only output
-                        prompt_with_constraints = (
-                            f"Implement the Python function `{entry_point}` exactly as specified.\n"
-                            f"- Do not include any tests, comments, prints, or imports.\n"
-                            f"- Only output the function definition in a Python fenced block.\n\n"
-                            f"Problem:\n{prompt}\n\n"
-                            f"Output format:\n```python\n# your function here\n```\n"
-                        )
-                        he_kwargs = build_code_gen_kwargs(args.samples_per_task, args.temperature, args.top_p)
-                        gens = evaluator.adapter.generate(
-                            prompt_with_constraints,
-                            max_new_tokens=512,
-                            **he_kwargs
-                        )
-                        passed_any = False
-                        first_code = None
-                        for gen in gens:
-                            code = extract_python_code(gen)
-                            if first_code is None:
-                                first_code = code
-                            full_code = prompt + code + "\n\n" + test
-                            result = evaluator.executor.execute(code=full_code, test_input="", timeout=5)
-                            if result.get('success', False) and not result.get('error'):
-                                passed_any = True
-                                break
-                        if passed_any: correct += 1
-                        results_local.append({'task_id': task_id, 'passed': passed_any, 'generated': first_code, 'samples': len(gens)})
+                    correct = 0
+                    results_local = []
+                    start_ts = time.perf_counter()
+                    subset_list = list(subset)
+                    gen_kwargs = evaluator.generation_kwargs
+                    mt = evaluator.max_new_tokens["humaneval"]
+                    bs = _benchmark_gen_microbatch_size(args.benchmark_batch_size, gen_kwargs)
+                    if bs > 1:
+                        logger.info("HumanEval (capped): micro-batch size=%s", bs)
+                    completed = 0
+                    with tqdm(total=len(subset_list), desc="HumanEval") as pbar:
+                        for chunk_start in range(0, len(subset_list), bs):
+                            chunk = subset_list[chunk_start : chunk_start + bs]
+                            prompts: List[str] = []
+                            metas: List[Tuple[Any, ...]] = []
+                            for example in chunk:
+                                task_id = example["task_id"]
+                                prompt = example["prompt"]
+                                test = example["test"]
+                                entry_point = example["entry_point"]
+                                prompt_with_constraints = (
+                                    f"Implement the Python function `{entry_point}` exactly as specified.\n"
+                                    f"- Do not include any tests, comments, prints, or imports.\n"
+                                    f"- Only output the function definition in a Python fenced block.\n\n"
+                                    f"Problem:\n{prompt}\n\n"
+                                    f"Output format:\n```python\n# your function here\n```\n"
+                                )
+                                prompts.append(prompt_with_constraints)
+                                metas.append((task_id, prompt, test, entry_point))
+                            per_prompt_seqs: List[List[str]] = []
+                            if bs <= 1 or not _can_benchmark_microbatch(gen_kwargs):
+                                for p in prompts:
+                                    per_prompt_seqs.append(
+                                        evaluator.adapter.generate(p, max_new_tokens=mt, **gen_kwargs)
+                                    )
+                            else:
+                                flat = evaluator.adapter.generate_batch(
+                                    prompts, max_new_tokens=mt, **gen_kwargs
+                                )
+                                per_prompt_seqs = [[s] for s in flat]
+                            for (task_id, prompt, test, entry_point), seqs in zip(metas, per_prompt_seqs):
+                                passed_any = False
+                                first_code = None
+                                for gen in seqs:
+                                    code = extract_python_code(gen)
+                                    if first_code is None:
+                                        first_code = code
+                                    full_code = prompt + code + "\n\n" + test
+                                    result = evaluator.executor.execute(
+                                        code=full_code, test_input="", timeout=5
+                                    )
+                                    if result.get("success", False) and not result.get("error"):
+                                        passed_any = True
+                                        break
+                                if passed_any:
+                                    correct += 1
+                                completed += 1
+                                if completed % TASK_PROGRESS_EVERY == 0 or completed == len(subset_list):
+                                    _log_task_heartbeat(
+                                        "HumanEval (capped)",
+                                        completed,
+                                        len(subset_list),
+                                        start_ts,
+                                        correct=correct,
+                                    )
+                                results_local.append(
+                                    {
+                                        "task_id": task_id,
+                                        "passed": passed_any,
+                                        "generated": first_code,
+                                        "samples": len(seqs),
+                                    }
+                                )
+                            pbar.update(len(chunk))
+                    elapsed = time.perf_counter() - start_ts
+                    logger.info(
+                        "HumanEval (capped) complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                        len(subset),
+                        correct,
+                        (correct / len(subset) if len(subset) else 0.0),
+                        _format_elapsed(elapsed),
+                    )
                     total = len(subset); accuracy = correct / total if total > 0 else 0
                     return {'benchmark': 'HumanEval', 'total': total, 'correct': correct, 'accuracy': accuracy, 'results': results_local}
                 except Exception as e:
@@ -819,49 +1199,105 @@ def main():
         if 'mbpp' in args.benchmarks:
             # MBPP sanitized split, cap by args.limit
             try:
-                dataset = load_dataset("mbpp", "sanitized", split="test")
+                logger.info("MBPP (capped): loading dataset (mbpp, sanitized, split=test)...")
+                dataset = load_azr_benchmark_split("mbpp", "test", "sanitized", logger=logger)
                 subset = dataset.select(range(min(len(dataset), args.limit)))
+                logger.info(f"MBPP (capped): dataset loaded with {len(subset)} tasks")
                 logger.info("Evaluating on MBPP (capped)...")
-                correct = 0; results_local = []
-                for example in tqdm(subset, desc="MBPP"):
-                    task_id = example.get('task_id', None)
-                    description = example.get('text') or example.get('prompt') or example.get('description') or ""
-                    tests = example.get('test_list') or example.get('tests') or []
-                    if not tests and 'test' in example:
-                        tests = [example['test']]
-                    fn_name = infer_function_name_from_tests(tests) or "solution"
-                    prompt = f"Write a Python function named `{fn_name}` to solve this problem:\n{description}\n\n"
-                    prompt_with_constraints = (
-                        f"Implement the function `{fn_name}` only.\n"
-                        f"- Do not include tests, comments, prints, or imports.\n"
-                        f"- Only output the function definition in a Python fenced block.\n\n"
-                        f"Problem:\n{description}\n\n"
-                        f"Output format:\n```python\n# your function here\n```\n"
-                    )
-                    mbpp_kwargs = build_code_gen_kwargs(args.samples_per_task, args.temperature, args.top_p)
-                    gens = evaluator.adapter.generate(
-                        prompt_with_constraints,
-                        max_new_tokens=256,
-                        **mbpp_kwargs
-                    )
-                    passed_any = False
-                    first_code = None
-                    for gen in gens:
-                        code = extract_python_code(gen)
-                        if first_code is None:
-                            first_code = code
-                        all_passed = True
-                        for test in tests:
-                            full_code = code + "\n\n" + test
-                            result = evaluator.executor.execute(code=full_code, test_input="", timeout=5)
-                            if not result.get('success', False):
-                                all_passed = False
-                                break
-                        if all_passed:
-                            passed_any = True
-                            break
-                    if passed_any: correct += 1
-                    results_local.append({'task_id': task_id, 'passed': passed_any, 'generated': first_code, 'samples': len(gens)})
+                correct = 0
+                results_local = []
+                start_ts = time.perf_counter()
+                subset_list = list(subset)
+                gen_kwargs = evaluator.generation_kwargs
+                mt = evaluator.max_new_tokens["mbpp"]
+                bs = _benchmark_gen_microbatch_size(args.benchmark_batch_size, gen_kwargs)
+                if bs > 1:
+                    logger.info("MBPP (capped): micro-batch size=%s", bs)
+                completed = 0
+                with tqdm(total=len(subset_list), desc="MBPP") as pbar:
+                    for chunk_start in range(0, len(subset_list), bs):
+                        chunk = subset_list[chunk_start : chunk_start + bs]
+                        prompts: List[str] = []
+                        metas: List[Tuple[Any, ...]] = []
+                        for example in chunk:
+                            task_id = example.get("task_id", None)
+                            description = (
+                                example.get("text")
+                                or example.get("prompt")
+                                or example.get("description")
+                                or ""
+                            )
+                            tests = example.get("test_list") or example.get("tests") or []
+                            if not tests and "test" in example:
+                                tests = [example["test"]]
+                            fn_name = infer_function_name_from_tests(tests) or "solution"
+                            prompt_with_constraints = (
+                                f"Implement the function `{fn_name}` only.\n"
+                                f"- Do not include tests, comments, prints, or imports.\n"
+                                f"- Only output the function definition in a Python fenced block.\n\n"
+                                f"Problem:\n{description}\n\n"
+                                f"Output format:\n```python\n# your function here\n```\n"
+                            )
+                            prompts.append(prompt_with_constraints)
+                            metas.append((task_id, tests))
+                        per_prompt_seqs: List[List[str]] = []
+                        if bs <= 1 or not _can_benchmark_microbatch(gen_kwargs):
+                            for p in prompts:
+                                per_prompt_seqs.append(
+                                    evaluator.adapter.generate(p, max_new_tokens=mt, **gen_kwargs)
+                                )
+                        else:
+                            flat = evaluator.adapter.generate_batch(
+                                prompts, max_new_tokens=mt, **gen_kwargs
+                            )
+                            per_prompt_seqs = [[s] for s in flat]
+                        for (task_id, tests), seqs in zip(metas, per_prompt_seqs):
+                            passed_any = False
+                            first_code = None
+                            for gen in seqs:
+                                code = extract_python_code(gen)
+                                if first_code is None:
+                                    first_code = code
+                                all_passed = True
+                                for test in tests:
+                                    full_code = code + "\n\n" + test
+                                    result = evaluator.executor.execute(
+                                        code=full_code, test_input="", timeout=5
+                                    )
+                                    if not result.get("success", False):
+                                        all_passed = False
+                                        break
+                                if all_passed:
+                                    passed_any = True
+                                    break
+                            if passed_any:
+                                correct += 1
+                            completed += 1
+                            if completed % TASK_PROGRESS_EVERY == 0 or completed == len(subset_list):
+                                _log_task_heartbeat(
+                                    "MBPP (capped)",
+                                    completed,
+                                    len(subset_list),
+                                    start_ts,
+                                    correct=correct,
+                                )
+                            results_local.append(
+                                {
+                                    "task_id": task_id,
+                                    "passed": passed_any,
+                                    "generated": first_code,
+                                    "samples": len(seqs),
+                                }
+                            )
+                        pbar.update(len(chunk))
+                elapsed = time.perf_counter() - start_ts
+                logger.info(
+                    "MBPP (capped) complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                    len(subset),
+                    correct,
+                    (correct / len(subset) if len(subset) else 0.0),
+                    _format_elapsed(elapsed),
+                )
                 total = len(subset); accuracy = correct / total if total > 0 else 0
                 results['mbpp'] = {'benchmark': 'MBPP', 'total': total, 'correct': correct, 'accuracy': accuracy, 'results': results_local}
             except Exception as e:
@@ -870,44 +1306,97 @@ def main():
         if 'gsm8k' in args.benchmarks:
             # Use existing method but override its internal cap with args.limit
             try:
-                dataset = load_dataset("gsm8k", "main", split="test")
+                logger.info("GSM8K (capped): loading dataset (gsm8k, main, split=test)...")
+                dataset = load_azr_benchmark_split("gsm8k", "test", "main", logger=logger)
                 total = min(len(dataset), args.limit)
                 correct = 0; results_local = []
+                logger.info(f"GSM8K (capped): dataset loaded with {total} candidate tasks")
                 import re
-                for idx, example in enumerate(tqdm(dataset.select(range(total)), desc="GSM8K")):
-                    question = example['question']; answer = example['answer']; true_answer = answer.split("####")[-1].strip()
-                    prompt = f"""Solve this math problem step by step.
- 
-  Question: {question}
- 
-  Let's solve this step by step:
-  """
-                    gens = evaluator.adapter.generate(
-                        prompt,
-                        max_new_tokens=512,
-                        temperature=args.temperature,
-                        top_p=args.top_p,
-                        num_return_sequences=args.samples_per_task,
-                        do_sample=True
-                    )
-                    answer_patterns = [r'answer is (\-?\d+(?:\.\d+)?)', r'= (\-?\d+(?:\.\d+)?)\s*$', r'equals (\-?\d+(?:\.\d+)?)', r'result is (\-?\d+(?:\.\d+)?)']
-                    predicted_answer = None
-                    passed_any = False
-                    for gen in gens:
-                        for pattern in answer_patterns:
-                            matches = re.findall(pattern, gen, re.IGNORECASE | re.MULTILINE)
-                            if matches:
-                                predicted_answer = matches[-1]
-                                break
-                        if predicted_answer:
-                            try:
-                                if abs(float(predicted_answer) - float(true_answer)) < 1e-5:
-                                    passed_any = True
-                                    break
-                            except:
-                                pass
-                    if passed_any: correct += 1
-                    results_local.append({'idx': idx, 'correct': passed_any, 'predicted': predicted_answer, 'true': true_answer, 'samples': len(gens)})
+
+                start_ts = time.perf_counter()
+                subset_list = list(dataset.select(range(total)))
+                gen_kwargs = evaluator.generation_kwargs
+                mt = evaluator.max_new_tokens["gsm8k"]
+                bs = _benchmark_gen_microbatch_size(args.benchmark_batch_size, gen_kwargs)
+                if bs > 1:
+                    logger.info("GSM8K (capped): micro-batch size=%s", bs)
+                answer_patterns = [
+                    r"answer is (\-?\d+(?:\.\d+)?)",
+                    r"= (\-?\d+(?:\.\d+)?)\s*$",
+                    r"equals (\-?\d+(?:\.\d+)?)",
+                    r"result is (\-?\d+(?:\.\d+)?)",
+                ]
+                completed = 0
+                with tqdm(total=len(subset_list), desc="GSM8K") as pbar:
+                    for chunk_start in range(0, len(subset_list), bs):
+                        chunk = subset_list[chunk_start : chunk_start + bs]
+                        prompts: List[str] = []
+                        metas: List[Tuple[str, int]] = []
+                        for offset, example in enumerate(chunk):
+                            question = example["question"]
+                            answer = example["answer"]
+                            true_answer = answer.split("####")[-1].strip()
+                            prompt = f"""Solve this math problem step by step.
+
+Question: {question}
+
+Let's solve this step by step:
+"""
+                            prompts.append(prompt)
+                            idx = chunk_start + offset + 1
+                            metas.append((true_answer, idx))
+                        per_prompt_seqs: List[List[str]] = []
+                        if bs <= 1 or not _can_benchmark_microbatch(gen_kwargs):
+                            for p in prompts:
+                                per_prompt_seqs.append(
+                                    evaluator.adapter.generate(p, max_new_tokens=mt, **gen_kwargs)
+                                )
+                        else:
+                            flat = evaluator.adapter.generate_batch(
+                                prompts, max_new_tokens=mt, **gen_kwargs
+                            )
+                            per_prompt_seqs = [[s] for s in flat]
+                        for (true_answer, idx), seqs in zip(metas, per_prompt_seqs):
+                            predicted_answer = None
+                            passed_any = False
+                            for gen in seqs:
+                                for pattern in answer_patterns:
+                                    matches = re.findall(pattern, gen, re.IGNORECASE | re.MULTILINE)
+                                    if matches:
+                                        predicted_answer = matches[-1]
+                                        break
+                                if predicted_answer:
+                                    try:
+                                        if abs(float(predicted_answer) - float(true_answer)) < 1e-5:
+                                            passed_any = True
+                                            break
+                                    except (ValueError, TypeError):
+                                        pass
+                            if passed_any:
+                                correct += 1
+                            completed += 1
+                            if completed % TASK_PROGRESS_EVERY == 0 or completed == total:
+                                _log_task_heartbeat(
+                                    "GSM8K (capped)", completed, total, start_ts, correct=correct
+                                )
+                            results_local.append(
+                                {
+                                    "idx": idx,
+                                    "correct": passed_any,
+                                    "predicted": predicted_answer,
+                                    "true": true_answer,
+                                    "samples": len(seqs),
+                                }
+                            )
+                        pbar.update(len(chunk))
+                elapsed = time.perf_counter() - start_ts
+                logger.info(
+                    "GSM8K (capped) complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                    total,
+                    correct,
+                    (correct / total if total else 0.0),
+                    _format_elapsed(elapsed),
+                )
                 accuracy = correct / total if total > 0 else 0
                 results['gsm8k'] = {'benchmark': 'GSM8K', 'total': total, 'correct': correct, 'accuracy': accuracy, 'results': results_local}
             except Exception as e:
@@ -915,37 +1404,97 @@ def main():
                 results['gsm8k'] = {'benchmark': 'GSM8K', 'error': str(e)}
         if 'math' in args.benchmarks:
             try:
-                dataset = load_dataset("hendrycks/competition_math", split="test")
+                logger.info("MATH (capped): loading dataset (hendrycks/competition_math, split=test)...")
+                dataset = load_azr_benchmark_split("hendrycks/competition_math", "test", None, logger=logger)
                 total = min(len(dataset), args.limit)
+                logger.info(f"MATH (capped): dataset loaded with {total} candidate tasks")
                 correct = 0; results_local = []
                 import re
-                boxed_pattern = r'\\boxed\{([^}]+)\}'
-                for idx, example in enumerate(tqdm(dataset.select(range(total)), desc="MATH")):
-                    problem = example['problem']; solution = example['solution']; level = example['level']; problem_type = example['type']
-                    prompt = f"""Solve this math problem step by step.
+
+                boxed_pattern = r"\\boxed\{([^}]+)\}"
+                start_ts = time.perf_counter()
+                subset_list = list(dataset.select(range(total)))
+                gen_kwargs = evaluator.generation_kwargs
+                mt = evaluator.max_new_tokens["math"]
+                bs = _benchmark_gen_microbatch_size(args.benchmark_batch_size, gen_kwargs)
+                if bs > 1:
+                    logger.info("MATH (capped): micro-batch size=%s", bs)
+                completed = 0
+                with tqdm(total=len(subset_list), desc="MATH") as pbar:
+                    for chunk_start in range(0, len(subset_list), bs):
+                        chunk = subset_list[chunk_start : chunk_start + bs]
+                        prompts: List[str] = []
+                        metas: List[Tuple[Any, ...]] = []
+                        for offset, example in enumerate(chunk):
+                            problem = example["problem"]
+                            solution = example["solution"]
+                            level = example["level"]
+                            problem_type = example["type"]
+                            prompt = f"""Solve this math problem step by step.
 
 Problem: {problem}
 
 Solution:
 """
-                    generated = self.adapter.generate(
-                        prompt,
-                        max_new_tokens=1024,
-                        temperature=0.2,
-                        top_p=0.95
-                    )[0]
-                    matches = re.findall(boxed_pattern, generated)
-                    predicted_answer = matches[-1] if matches else None
-                    true_matches = re.findall(boxed_pattern, solution)
-                    true_answer = true_matches[-1] if true_matches else None
-                    is_correct = predicted_answer == true_answer if predicted_answer and true_answer else False
-                    if is_correct: correct += 1
-                    results_local.append({'idx': idx, 'level': level, 'type': problem_type, 'correct': is_correct, 'predicted': predicted_answer, 'true': true_answer})
+                            prompts.append(prompt)
+                            idx = chunk_start + offset + 1
+                            metas.append((solution, level, problem_type, idx))
+                        per_prompt_texts: List[str] = []
+                        if bs <= 1 or not _can_benchmark_microbatch(gen_kwargs):
+                            for p in prompts:
+                                per_prompt_texts.append(
+                                    evaluator.adapter.generate(p, max_new_tokens=mt, **gen_kwargs)[0]
+                                )
+                        else:
+                            per_prompt_texts = evaluator.adapter.generate_batch(
+                                prompts, max_new_tokens=mt, **gen_kwargs
+                            )
+                        for (solution, level, problem_type, idx), generated in zip(
+                            metas, per_prompt_texts
+                        ):
+                            matches = re.findall(boxed_pattern, generated)
+                            predicted_answer = matches[-1] if matches else None
+                            true_matches = re.findall(boxed_pattern, solution)
+                            true_answer = true_matches[-1] if true_matches else None
+                            is_correct = (
+                                predicted_answer == true_answer
+                                if predicted_answer and true_answer
+                                else False
+                            )
+                            if is_correct:
+                                correct += 1
+                            completed += 1
+                            if completed % TASK_PROGRESS_EVERY == 0 or completed == total:
+                                _log_task_heartbeat(
+                                    "MATH (capped)", completed, total, start_ts, correct=correct
+                                )
+                            results_local.append(
+                                {
+                                    "idx": idx,
+                                    "level": level,
+                                    "type": problem_type,
+                                    "correct": is_correct,
+                                    "predicted": predicted_answer,
+                                    "true": true_answer,
+                                }
+                            )
+                        pbar.update(len(chunk))
+                elapsed = time.perf_counter() - start_ts
+                logger.info(
+                    "MATH (capped) complete: total=%s correct=%s accuracy=%.4f elapsed=%s",
+                    total,
+                    correct,
+                    (correct / total if total else 0.0),
+                    _format_elapsed(elapsed),
+                )
                 accuracy = correct / total if total > 0 else 0
                 results['math'] = {'benchmark': 'MATH', 'total': total, 'correct': correct, 'accuracy': accuracy, 'results': results_local}
             except Exception as e:
                 logger.error(f"Error evaluating MATH (capped): {e}")
                 results['math'] = {'benchmark': 'MATH', 'error': str(e)}
+        if 'programbench' in args.benchmarks:
+            logger.info("ProgramBench: aggregating existing eval artifacts (no model generation)...")
+            results['programbench'] = evaluate_programbench_run_dir(args.programbench_run_dir)
         
         evaluator.save_results(results)
         evaluator.print_summary(results)

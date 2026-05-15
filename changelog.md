@@ -1,5 +1,134 @@
 # Changelog
 
+[IST 17-May-2026 00:08:00] - Local `.env`: VRAM-safe PPO defaults (`AZR_HF_BATCH_SIZE=2`, `AZR_HF_PPO_UPDATE_THRESHOLD=32`, `AZR_PPO_MICROBATCH_SIZE=2`, `AZR_PPO_CE_CHUNK=2048`); `run_local_hf_training.ps1` forwards `AZR_PPO_*` into the trainer child env; removed `.env.example`; Q&A pointers reference root `.env`.
+
+[IST 15-May-2026 23:59:00] - `hf_parsing_utils.parse_generated_tasks`: skip non-dict elements in JSON task arrays (and `_normalize_task_fields` guard) so mixed lists like `[{...}, 1]` no longer raise `TypeError`; tests in `tests/test_hf_parsing_utils.py`.
+
+[IST 17-May-2026 12:30:00] - Expressive paper-aligned HF env: optional `AZR_HF_LEARNING_RATE`, `AZR_HF_CRITIC_LEARNING_RATE`, `AZR_HF_GENERATION_STEPS_PER_EPOCH`, `AZR_HF_BATCH_SIZE`, `AZR_HF_PPO_UPDATE_THRESHOLD` (and `AZR_SEED_TASKS_PER_TYPE` via `_apply_azr_hf_env_trainer_hyperparams`) override defaults and the `AZR_PAPER_STYLE_DEFAULTS` preset; `__main__` resolves throughput/LR from env first; PS1 forwards the new keys; `.env` documents explicit values; tests in `tests/test_hf_trainer_env_hyperparams.py`.
+
+[IST 15-May-2026 18:45:00] - Paper-style optional preset + solver fence stripping: `AZR_PAPER_STYLE_DEFAULTS` (documented in `.env.example`; forwarded from `run_local_hf_training.ps1`) applies in `HuggingFaceRLTrainer` for caller-unset keys (`learning_rate`/`critic_learning_rate` 5e-7, throughput preset, optional warm seeds) and switches `__main__` from 1/1/1 smoke steps to 10/16/64 when set; `strip_leading_trailing_code_fences` in `hf_parsing_utils` + `code_executor` / `_extract_code_from_solution` to avoid ```-prefixed `SyntaxError`; convergence notes (`AZR_CONVERGENCE_PLATEAU_EPOCHS=30`); tests in `tests/test_hf_parsing_utils.py`. `epoch_summary.jsonl` path unchanged.
+
+[IST 16-May-2026 23:55:00] - Per-run compact metrics: when `run_log_dir` / `AZR_RUN_LOG_DIR` is set (local PS1 launcher), `hf_trainer` appends one JSON object per epoch to `epoch_summary.jsonl` (rewards, losses, cumulative experiences / valid tasks, epoch valid-task delta, heuristic `parse_rate`, plateau and best-reward snapshot).
+
+[IST 16-May-2026 23:45:00] - HF RL per-step tracing: optional JSONL (`AZR_TRAIN_STEP_LOG`, `AZR_TRAIN_STEP_LOG_MAX_CHARS`, `AZR_TRAIN_STEP_LOG_FILE`) via `hf_training_step_trace.py` and hooks in `hf_trainer.train_epoch`; `scripts/run_local_hf_training.ps1` sets `AZR_RUN_LOG_DIR` so traces land in `training_run_logs/.../step_trace.log` by default; `.env.example` documented; tests in `tests/test_hf_training_step_trace.py`.
+
+[IST 16-May-2026 22:30:00] - GAVU / benchmark hygiene: `hf_action_value_utils` only warns on missing `hidden_states` when `output_hidden_states=True`; separate-critic path logs a single DEBUG line instead of per-step WARNING; logit clamp and single-model missing-hidden use throttled WARNING (`AZR_GAVU_LOG_WARN_CAP`, default 3). `hf_generation_utils` strips `temperature`/`top_p`/`top_k`/related kwargs when `do_sample=False` before `generate` (and on deterministic retry). `evaluate_benchmarks.build_code_gen_kwargs` omits unused sampling fields for greedy/beam. `azr_hf_adapter` checkpoint actor-only fallback uses `dtype_kwargs_for_from_pretrained` for dtype loading.
+
+[IST 15-May-2026 22:10:00] - Degenerate proposer loop mitigation: ``HuggingFaceAdapter`` aligns ``torch_dtype=None`` with ``hf_model_setup_utils`` (bf16 on CUDA when ``torch.cuda.is_bf16_supported()``, else fp16) instead of forcing fp16; ``hf_generation_utils`` calls ``apply_azr_attention_env_once`` at generation entry, tighter ``AZR_GEN_LOGITS_FP32`` fallback (``torch.cuda.amp.autocast`` + warning hinting bf16/SDPA), docstring ties non-finite logits to weight precision; ``hf_trainer`` proposer path caps curriculum temperature/top_p when unset (``proposer_temperature_cap`` / ``proposer_top_p_cap``) with env ``AZR_PROPOSER_*`` overrides; ``.env.example`` recipes; regression test malformed duplicate-json-fence-before-python in ``tests/test_hf_parsing_utils.py``.
+
+[IST 15-May-2026 23:55:00] - Windows CUDA SDPA crash mitigation: `hf_transformers_compat.apply_azr_attention_env_once` / `explicit_attn_implementation_from_azr_env` — env `AZR_ATTN_IMPLEMENTATION` (pass-through to `from_pretrained`) or `AZR_SDPA_DISABLED=1` (eager + disable Flash/mem-efficient CUDA SDP); wired through `hf_model_setup_utils`, `hf_value_model`, `hf_model_io_utils`, `azr_hf_adapter`; `.env.example` + Q&A Q26 for exit `-1073740791` / NTSTATUS `0xC0000409`.
+
+[IST 15-May-2026 22:35:00] - `scripts/run_local_hf_training.ps1`: Ctrl+C registration uses `[Console]::add_CancelKeyPress` / `remove_CancelKeyPress` with a stored `ConsoleCancelEventHandler` (fixes pwsh and Windows PowerShell 5.1 error: `CancelKeyPress` property cannot be found when using `+=`); unregister avoids leaking the handler.
+
+[IST 16-May-2026 20:18:00] - `scripts/run_local_hf_training.ps1`: reliable Ctrl+C — `[Console]::CancelKeyPress` (first press cooperates and tears down trainer/benchmark via short grace + `Process.Kill($true)` / `taskkill /T`; second press exits shell); resource and benchmark polling use short cancellable sleeps instead of one long `Start-Sleep`; env restore + handler unregister on user cancel (`exit 130`) and on training/benchmark failure throws.
+
+[IST 16-May-2026 19:52:00] - Proposer JSON recovery: `hf_parsing_utils.find_json_objects` now prefers validated ```json``` fences only (skips ```python```/other code fences that previously matched optional-`json` regex and broke `segment_idx: 1`); generic ``` fences only when language tag is empty/json/js and body `json.loads`; added `tests/test_hf_parsing_utils.py`. `hf_transformers_compat.dtype_kwargs_for_from_pretrained` now checks `PreTrainedModel.from_pretrained` for a `dtype` parameter when the concrete `AutoModel*` class signature omits it, reducing `torch_dtype` deprecation noise on supported Transformers.
+
+[IST 16-May-2026 14:30:00] - Paper-aligned HF defaults: `hf_trainer` / `evaluate_benchmarks` / `run_pre_post_benchmarks` default `--use-separate-value-model` on; `hf_generation_utils` defaults fp32-friendly CUDA logits when `AZR_GEN_LOGITS_FP32` unset; `HuggingFaceAdapter` / `BenchmarkEvaluator` / `initialize_models_and_tokenizer` default separate critic; PS1 forwards `--no-use-separate-value-model` when unified and copies `AZR_GEN_LOGITS_FP32` / `AZR_PPO_DISABLE_CUDA_AUTOCAST` / `AZR_LAYERNORM_EPS` from `.env` into the trainer child env; `.env` / `.env.example` / README / Q&A updated; unified-path log in `hf_action_value_utils` demoted to DEBUG; `evaluate_benchmarks` type hints use `typing.Optional` for Python 3.9 imports.
+
+[IST 16-May-2026 12:00:00] - Expanded `.env.example` fast-benchmark section with tradeoff notes; added active `AZR_BENCHMARK_FAST`, `AZR_BENCHMARK_BATCH_SIZE`, `AZR_GENU_LOG_WARN_CAP`, and cross-comments in local `.env` (samples clamp when FAST=1).
+
+[IST 16-May-2026 00:15:00] - Benchmark wall-clock: env `AZR_BENCHMARK_FAST` (clamp samples, tighter max_new_tokens, default batch 4), `AZR_BENCHMARK_MAX_TASKS_PER_DATASET` (caps `--limit`), `AZR_BENCHMARK_BATCH_SIZE` (micro-batched capped eval + `generate_batch` in adapter), `AZR_GENU_LOG_WARN_CAP` (throttle GenU warnings in `hf_generation_utils`); documented in `.env.example`; PS1 forwards benchmark env to post-train eval.
+
+[IST 14-May-2026 18:30:00] - Training/eval stability and Python 3.9 import hygiene: added `hf_transformers_compat.dtype_kwargs_for_from_pretrained` (prefers `dtype` over deprecated `torch_dtype`); 4-bit `bnb_4bit_compute_dtype` uses bf16 when CUDA supports it; removed duplicate `quantization_config` on local checkpoint reloads (`hf_model_io_utils`, `hf_value_model`); convergence early-stop is configurable (`AZR_DISABLE_CONVERGENCE_EARLY_STOP`, `AZR_CONVERGENCE_PLATEAU_EPOCHS`, `AZR_CONVERGENCE_WINDOW_EPOCHS`); adapter checkpoint fallback loads actor without redundant `torch_dtype`; fixed `str | None` / `int | None` annotations for Python 3.9 in `hf_trainer_callbacks.py` and `code_executor.py`.
+
+[IST 15-May-2026 14:55:00 IST] - Fixed Rich `_AnsiSafeFormatter` in `hf_trainer.py` and `optimize_hyperparameters.py`: after expanding `record.getMessage()`, clear `record.args` before `super().format` so `logging` does not run `msg % args` twice (was raising `TypeError: not all arguments converted during string formatting` on any `logger.*` call with placeholders under RichHandler).
+
+[IST 15-May-2026 23:59:00] - Root cleanup: removed `.pytest_cache/`, `debug_eval_run/` (debug `evaluation.log`), `training_run_logs/` (~10MB), and `test_results/` (regenerable pytest/cache outputs).
+
+[IST 15-May-2026 13:31:08] - Removed empty root `tmp_short_ckpt_sep`; verified local `models/Qwen3-0.6B` + `benchmark_data` snapshots (no new Hub downloads); enabled full-offline `.env` toggles (`AZR_BENCHMARK_*`, `HF_HUB_OFFLINE`, `HF_DATASETS_OFFLINE`, `TRANSFORMERS_OFFLINE`).
+
+[IST 15-May-2026 14:35:00] - Removed root `__pycache__`; appended `.env` commented recipe for full offline training and benchmark Hub toggles; re-ran `scripts/prefetch_benchmark_datasets.py` (manifest refresh); added Q&A Q24 for offline stack.
+
+[IST 15-May-2026 13:20:00] - `.env` benchmark local-first defaults (`AZR_BENCHMARK_DATA_ROOT`, `AZR_BENCHMARK_ALLOW_ONLINE`, `AZR_BENCHMARK_PREFETCH_ONLINE`, `AZR_BENCHMARK_OFFLINE`); removed ephemeral logs/tmp/paper archive/temp checkpoints; repo-wide `__pycache__` sweep; benchmark prefetch completed after routing gated MATH Hub fetch through `EleutherAI/hendrycks_math` concat in `scripts/prefetch_benchmark_datasets.py`.
+
+[IST 15-May-2026 22:15:00] - Local-first benchmark datasets with env toggles and prefetch.
+- `hf_benchmark_data.py`: unified local-first loader (`AZR_BENCHMARK_ALLOW_ONLINE` default off; legacy `AZR_BENCHMARK_ALLOW_ONLINE_LOAD` honored when the new var is unset), nested `save_to_disk` paths, optional `AZR_BENCHMARK_HUB_REVISION`, manifest logging, Hub runtime cache to disk when online is allowed.
+- Added `scripts/prefetch_benchmark_datasets.py` plus `benchmark_data/README.md` / `.gitignore` rules for snapshot subdirs; root `.env.example` documents benchmark env vars.
+- `evaluate_benchmarks.py`: all HumanEval/MBPP/GSM8K/MATH loads route through `load_azr_benchmark_split`; `apply_benchmark_offline_env()` at CLI startup.
+- `tests/test_hf_benchmark_data.py`: canonical paths, local-preference load, missing-local error, allow-online parsing.
+
+[IST 15-May-2026 21:30:00] - GradScaler off for native fp16/bf16 weights; PPO manual unscale fallback.
+- `hf_trainer.py`: `mixed_precision` / GradScaler only when `--model-dtype` is fp32 (fp16/bf16 loaded weights use fp16 grads incompatible with `GradScaler.unscale_` / `step` on current PyTorch builds).
+- `hf_ppo_utils.py`: if `unscale_` fails and clipping is skipped, manually scale down `.grad` by `1/get_scale()` then `optimizer.step()` + `scaler.update()` instead of `scaler.step()` (avoids second unscale crash).
+
+[IST 15-May-2026 21:05:00] - PPO backward graph + argv guard cleanup.
+- `hf_action_value_utils._sanitize_finite_tensor`: removed `torch.full_like` fallback for all-non-finite tensors; always use `torch.nan_to_num` so autograd stays connected (fixes `loss.backward()` failing with tensors that do not require grad when entire slices were sanitized).
+- `hf_ppo_utils.perform_ppo_update`: normalized `_ppo_train_mode_guard` / autocast block indentation and moved the explanatory comment next to the guard (regression: mixed indents previously made the guarded region hard to audit).
+- `hf_trainer.py`: gradient checkpointing + `enable_input_require_grads()` now target the real training module (`adapter.model` in unified mode, not only `actor_model`).
+
+[IST 15-May-2026 19:55:00] - Benchmark argv comma tokens, MSVC cmdline flattening, optional PPO CUDA autocast off.
+- `evaluate_benchmarks.py` and `run_pre_post_benchmarks.py` now split comma-separated `--benchmarks` values (e.g. a single `humaneval,mbpp` token) so HumanEval/MBPP branches run and Rich aggregates populate; `_is_numeric_score` accepts NumPy scalar accuracies.
+- `scripts/run_local_hf_training.ps1` expands `BenchmarkList` entries on commas before building child argv; `ConvertTo-CmdLineFromTokens` flattens nested arrays and treats strings as atomic tokens (avoids per-character MSVC tails); trainer/benchmark logs use the same MSVC tail string passed to `ProcessStartInfo.Arguments`.
+- `hf_ppo_utils.py`: optional `AZR_PPO_DISABLE_CUDA_AUTOCAST` wraps `get_model_outputs_for_ppo` in `torch.amp.autocast(..., enabled=False)` on CUDA; clarified NaN loss log (was not inside autocast).
+
+[IST 15-May-2026 18:10:00] - Fixed `scripts/run_local_hf_training.ps1` child argv when the repo path contains spaces on Windows PowerShell 5.1.
+- Replaced `Start-Process -ArgumentList` for `hf_trainer.py` and `run_pre_post_benchmarks.py` with `System.Diagnostics.Process` + `ProcessStartInfo.Arguments` built via MSVC-style quoting (`ConvertTo-CmdLineFromTokens`), plus async `StandardOutput`/`StandardError` stream copies to the same log files (avoids `can't open file 'O:\\D'` from argv split at the first space).
+- Logs one-line human join, MSVC args tail, and angle-bracket-delimited argv token dumps for trainer and benchmark (no secrets).
+
+[IST 15-May-2026 16:25:00] - Benchmark argv, 4-bit parity, eval aggregation, and generation AMP guard.
+- `scripts/run_local_hf_training.ps1` now passes path tokens to `Start-Process` as separate array elements (no embedded quotes) and forwards `--use-4bit` / `--no-use-4bit` to both `hf_trainer.py` and `run_pre_post_benchmarks.py` so benchmark loads match training quantization.
+- `hf_trainer.py` uses `argparse.BooleanOptionalAction` for `--use-4bit` / `--no-use-4bit` (default remains off).
+- `evaluate_benchmarks.py` / `run_pre_post_benchmarks.py` accept the same flags; `BenchmarkEvaluator` and `HuggingFaceAdapter` / `initialize_models_and_tokenizer` default 4-bit loading to off, with `AZR_USE_4BIT` honored when CLI omits the flag on `evaluate_benchmarks.py`.
+- Fixed HumanEval capped-loop indentation so each task runs generation and scoring (was running a single trailing task).
+- Rich summary aggregates use normalized benchmark keys and numeric accuracy checks (numpy scalars / mixed runs).
+- `hf_generation_utils.py` disables CUDA autocast around forward/generate to reduce all-NaN logits under nested mixed precision.
+
+[IST 14-May-2026 12:45:00] - Load tokenizer and causal weights from nested checkpoint folders in `hf_model_setup_utils.py`.
+- When `model_name` is a local directory containing `tokenizer/tokenizer_config.json` and `model/config.json`, tokenizer and unified-model loads now use those subpaths (same layout as `hf_model_io_utils.load_models_and_tokenizer`), fixing benchmark/eval loads that pointed at the checkpoint root and failed tokenizer init.
+
+[IST 14-May-2026 12:30:00] - Fixed benchmark CLI flags in `scripts/run_local_hf_training.ps1`.
+- Removed `--no-use-separate-value-model` from the post-train benchmark argv list because `run_pre_post_benchmarks.py` only supports `--use-separate-value-model` (store_true); unified mode is the default when the flag is omitted.
+
+[IST 14-May-2026 00:25:00] - Fixed post-training benchmark launch when the repo path contains spaces.
+- `scripts/run_local_hf_training.ps1` now wraps benchmark argv path tokens (`run_pre_post_benchmarks.py`, baseline/improved model dirs, results root, optional ProgramBench dirs) in embedded quotes, matching the existing `hf_trainer.py` invocation pattern so `Start-Process` does not split paths like `O:\D temp\...` at the first space (which previously made Python try to open `O:\D`).
+
+[IST 13-May-2026 10:00:00] - Applied paper-protocol alignment for Qwen3-0.6B papering run defaults and metadata.
+- Enforced unified actor-critic as the default (`AZR_USE_SEPARATE_VALUE_MODEL=false`) and aligned generation defaults for proposer and solver paths to temperature/top_p `0.2/0.95`, with proposer/sampler defaults (`proposer_num_return_sequences=8`, `k_reference=6`) routed through `hf_trainer.py`, `hf_dataset_manager.py`, `hf_generation_utils.py`, and `azr_hf_adapter.py`.
+- Added a graceful proposer generation fallback to single-sequence decoding when multi-sample generation fails in both training seed creation and proposer PPO steps to retain compatibility with constrained runtime environments.
+- Updated benchmark runner contracts in `evaluate_benchmarks.py` and `run_pre_post_benchmarks.py` to use paper-like `samples_per_task/temperature/top_p` defaults and to persist `k_reference`, actor-critic mode, sampling knobs, and environment snapshot into `run_metadata.json`.
+- Added static validation by running `python -m py_compile` across modified Python entrypoints to catch syntax regressions before end-to-end execution.
+
+[IST 12-May-2026 23:34:00] - Improved benchmark progress visibility across evaluation runs.
+  - Added startup, dataset-load, periodic task-heartbeat, and benchmark-summary logs in `evaluate_benchmarks.py` (including capped paths used by `run_pre_post_benchmarks.py`).
+  - Added live terminal streaming of benchmark child-process output in `run_pre_post_benchmarks.py` while retaining per-run `comparison_eval.log` artifacts, so long runs show progress both in real time and in files.
+
+[IST 11-May-2026 18:45:00] - ProgramBench is opt-in again via `AZR_BENCHMARK_LIST` / `--benchmarks`; the launcher passes baseline and improved ProgramBench run dirs only when `programbench` is selected and the paths are non-empty.
+
+[IST 11-May-2026 14:08:00] - Temporarily commented out ProgramBench integration and reverted benchmark lists to the non-ProgramBench baseline set.
+  - Disabled ProgramBench CLI handling in `evaluate_benchmarks.py` and `run_pre_post_benchmarks.py` by commenting related arguments, default inclusion, and wiring.
+  - Updated `scripts/run_local_hf_training.ps1` and `.env` to remove ProgramBench from active benchmark configuration while keeping deactivation notes in place.
+
+[IST 10-May-2026 16:11:00 IST] - Added `AZR_FORCE_RESTART` to `scripts/run_local_hf_training.ps1` launcher config so local HF runs can optionally wipe checkpoint state before launch and start from a clean checkpoint path.
+  - Added matching `.env` toggle `AZR_FORCE_RESTART=false`, env-to-CLI boolean parsing in the launcher, and checkpoint cleanup logging in run output and `run_summary.md`.
+
+## 2026-05-10 15:58:00 IST
+- Improved benchmark visibility in `scripts/run_local_hf_training.ps1` by streaming redirected benchmark stdout/stderr into the terminal while the process runs and adding unbuffered Python (`-u`) for the benchmark invocation.
+- This fixes the user-visible stall after `Running post-training benchmark...` by printing each new log line as it is produced, while still keeping `benchmark_stdout.log` / `benchmark_stderr.log` as artifacts.
+
+## 2026-05-10 16:12:00 IST
+- Extended `scripts/run_local_hf_training.ps1` to stream trainer stdout/stderr into the terminal during `hf_trainer.py` execution as well, so epoch and training progress are visible in real time instead of only post-run in files.
+- This helps quickly confirm whether a run is actually training, resuming from a checkpoint, or ending immediately due epoch/cp boundaries.
+
+## 2026-05-10 16:15:00 IST
+- Added `AZR_FORCE_RESTART` support in `scripts/run_local_hf_training.ps1` (with environment + CLI binding) to force a clean training start by validating and clearing checkpoint directories before launch.
+- Added explicit checkpoint cleanup commentary in launcher output (including a guard against unsafe delete paths) and recorded `force_restart` in run config for traceability.
+- Added default `AZR_FORCE_RESTART=false` in `.env`.
+
+## 2026-05-10 11:55:00 IST
+- Completed the Qwen smoke-test consolidation for `Qwen/Qwen3.5-0.8B`: refactored `tests/test_qwen36_model_smoke.py` into `tests/test_qwen35_0_8b_model_smoke.py`, switched env configuration names to `AZR_QWEN35_0_8B_*`/`SKIP_QWEN_SMOKE`, and re-ran the smoke test successfully.
+- Downloaded missing `model.safetensors-00001-of-00001.safetensors` into `models/Qwen3.5-0.8B`, then verified `tests/test_qwen35_0_8b_model_smoke.py -q` and `-q -s` now pass.
+- Fixed Python typing compatibility issue in `hf_action_value_utils.py` by replacing the `torch.Tensor | None` annotation with `Optional[torch.Tensor]`.
+
+## 2026-05-10 12:10:00 IST
+- Restored the smoke-test heuristic diagnostics for the `Qwen/Qwen3.5-0.8B` smoke path: responses are now reported with lightweight concept-coverage checks for both non-thinking and thinking modes in verbose runs (`AZR_QWEN35_0_8B_SMOKE_VERBOSE=1`), while keeping the pass criteria unchanged.
+
+## 2026-05-10 10:50:13 IST
+- Documented that Qwen3.6 has no 1.7B Hub repo; smoke tests default to `Qwen/Qwen3-1.7B` and `models/Qwen3.6-1.7B`; fixed Python 3.9 annotation imports via `from __future__ import annotations` in `hf_action_value_utils.py` and `hf_ppo_utils.py`.
+
+## 2026-05-10 (later) IST
+- Renamed `tests/test_qwen35_model_smoke.py` to `tests/test_qwen36_model_smoke.py`; Hub weights default `Qwen/Qwen3-1.7B`, env vars `AZR_QWEN36_*` / `SKIP_QWEN36_SMOKE`, local snapshot dir `models/Qwen3.6-1.7B`.
+
 ## 2026-03-20 01:43:09 IST
 - Synced root work to branch `feature/azr-local-hf-work` tracking `origin/feature/azr-local-hf-work` for all local-modified code.
 - Removed the nested `Absolute-Zero-Reasoner/` checkout from the active root workspace.
@@ -8,7 +137,7 @@
 
 ## 2026-03-20 01:46:43 IST
 - Added explicit feature-branch workflow guidance in `README.md` (`feature/azr-local-hf-work` as workspace branch, keep `main` aligned upstream).
-- Added a direct reminder to avoid re-adding the nested `Absolute-Zero-Reasoner/` checkout in this repo’s local workflows.
+- Added a direct reminder to avoid re-adding the nested `Absolute-Zero-Reasoner/` checkout in this repo's local workflows.
 
 ## 2026-03-20 01:52:08 IST
 - Completed a sweep for remaining hardcoded `Absolute-Zero-Reasoner` path usage in local guidance/docs:
@@ -964,3 +1093,75 @@ un_post_fix_full_20_lower_20260319_162823 at --cpu-cap 20 to validate reduced lo
 - Updated scripts/run_local_hf_training.ps1 to keep legacy flat checkpoint folder names (hf_trainer_checkpoints_*, hf_checkpoints_*) under hf_checkpoints/ when explicitly provided, preventing new root-level checkpoint spam during wrapper runs.
 - Updated local launchbook references (README.md, .cursor/plans/hybrid_azr_training_execution_09dcfd77.plan.md) to reflect checkpoint folder convention and avoid confusion.
 
+[IST 10-May-2026 02:01:36] - Cleaned Qwen3.5 model snapshot remnants and removed old autoevo run_round* checkpoint directories while keeping autoevo metadata.
+
+[IST 10-May-2026 11:24:00] - Updated `tests/test_qwen36_model_smoke.py` to target `Qwen/Qwen3.5-0.8B` with local cache path `models/Qwen3.5-0.8B` as the default smoke-test checkpoint.
+
+[IST 10-May-2026 13:52:10] - Completed model competition in models/ and pruned to winner model.
+- Evaluated local candidate model folders (Qwen3-1.7B, Qwen3.5-0.8B, gemma-4-E4B) using tests/test_qwen35_0_8b_model_smoke.py with identical prompt and AZR_QWEN35_0_8B_MAX_NEW_TOKENS=256, capturing load time, non-thinking/thinking generation lengths, and quality heuristic scores.
+- Comparison outcome selected Qwen3-1.7B as winner (highest thinking quality with moderate load/size tradeoff vs. higher risk markers and lower scores for alternatives).
+- Removed losing model directories: models/Qwen3.5-0.8B, models/gemma-4-E4B; kept models/Qwen3-1.7B.
+
+[IST 10-May-2026 14:30:00] - Fixed launcher reliability for `.env`-first local HF runs by keeping `.env` values as defaults and letting CLI override, then failing fast when HF trainer exits with runtime errors.
+- In `hf_trainer.py`, re-threw training exceptions from the main guard so failures no longer return exit code 0 and incorrectly proceed to post-training benchmark.
+- Updated `.env` default to `AZR_USE_4BIT=true` to reduce GPU OOM risk during 1.7B runs on 22.5 GiB cards.
+
+
+
+[IST 10-May-2026 15:42:00] - Fixed post-training benchmark launch in `scripts/run_local_hf_training.ps1` for Windows paths with spaces by passing script/model/result path args without manual quote wrapping and relying on PowerShell argument arrays for exact tokenization.
+- Added `-PassThru`, explicit `WaitForExit`, and parsed exit code capture for the benchmark process so failures now surface real non-zero exit codes instead of blank messages.
+[IST 10-May-2026 15:56:00] - Fixed remaining `run_local_hf_training.ps1` benchmark launch path/exit handling by re-quoting path arguments that can include spaces (`--checkpoint-dir`, `--improved-model`, `--results-root`, and baseline path) in `Start-Process` argument list and by using `-Wait` with a direct process-exit read to avoid false `-1` exit-code captures.
+- Verified by running `.\\scripts\\run_local_hf_training.ps1 -Epochs 1 -BenchmarkLimit 1 -BenchmarkList humaneval -BenchmarkSamplesPerTask 1 -BenchmarkPassk 1 -RunBenchmark -CheckpointDir hf_checkpoints\\Qwen3-1.7B_smoke3`, which now trains, writes checkpoints, runs benchmark, and exits 0.
+
+[IST 10-May-2026 16:20:00] - Added launcher output section dividers in `scripts/run_local_hf_training.ps1` using a new `Write-SectionDivider` helper to improve run-time readability across stages (environment resolution, startup summary, checkpoint prep, training, benchmark, completion).
+
+[IST 10-May-2026 16:40:00] - Removed remaining terminal-facing emoji characters from key Python output paths in `hf_trainer.py` and `tests/test_curriculum_fix.py`.
+- Replaced icon-based task/progress markers (for example, dice, check, and failure symbols) with plain text tags (`Step`, `[PASS]`, `[FAIL]`) to keep terminal output explainable in environments where emoji are not desired.
+
+[IST 11-May-2026 00:25:00] - Integrated [ProgramBench](https://github.com/AshutoshBuilds/ProgramBench) into the AZR benchmark pipeline alongside HumanEval, MBPP, and GSM8K.
+- `evaluate_benchmarks.py`: added optional `programbench` benchmark that aggregates existing per-instance `*.eval.json` results (same scoring rules as `programbench info`) when `--programbench-run-dir` is set and `pip install programbench` is available; documented upstream Docker/Linux requirements in error messages when artifacts or the package are missing.
+- `run_pre_post_benchmarks.py`: default benchmark list now includes `programbench`; added `--baseline-programbench-run-dir` / `--improved-programbench-run-dir`; child eval subprocess now uses repo-root `cwd` and an absolute path to `evaluate_benchmarks.py` so runs work from any working directory.
+- Fixed MATH capped evaluation in `evaluate_benchmarks.py` (`self.adapter` undefined in `main()`; now uses `evaluator.adapter` and CLI temperature/top-p).
+- `scripts/run_local_hf_training.ps1`: default `BenchmarkList` includes `programbench`; optional `AZR_BASELINE_PROGRAMBENCH_RUN_DIR` / `AZR_IMPROVED_PROGRAMBENCH_RUN_DIR` wired through; trainer and benchmark `Start-Process` now set `-WorkingDirectory` to the project root for reliable relative paths.
+- `.env`: extended `AZR_BENCHMARK_LIST` with `programbench` and added commented optional ProgramBench run directory keys.
+
+[IST 11-May-2026 23:44:01] - Fixed `IndentationError` in `hf_trainer.py` training loop: periodic proposer task-proposal logging (`if step % 5 == 0`) now correctly indents both `logger.info` lines under the `if` block.
+
+[IST 12-May-2026 22:45:00] - Hardened PPO output path for single-model adapters by removing the hard failure in `hf_ppo_utils.get_model_outputs_for_ppo` when `use_separate_value_model=False`.
+- Updated `perform_ppo_update` in `hf_ppo_utils.py` to: derive output dtype from the active model path (single vs. actor model), avoid actor/critic mode assumptions in single-model setups, and clip/inspect gradients from the right parameter set when separate models are not used.
+- Added single-model-safe advantage normalization (`std(unbiased=False)` with near-zero guard) to eliminate brittle `std()` warnings and skip invalid minibatch normalization.
+- Re-ran compact smoke training for a single-model, 4-bit, non-mixed-precision config; run completed successfully (`exit code 0`) with expected non-fatal warnings and no `CRITICAL: NaN or Inf` PPO loss error.
+
+[IST 12-May-2026 23:17:18 IST] - Fixed a recurring post-training benchmark failure in `scripts/run_local_hf_training.ps1` where `run_pre_post_benchmarks.py` appeared to return `-1`.
+- Removed over-quoted string values from benchmark argument list and avoided reading a non-reliable `Start-Process` `ExitCode` field, which is intermittently null in this PowerShell environment.
+- Changed benchmark dispatch in the launcher to a direct PowerShell invocation with explicit stdout/stderr redirection and `$LASTEXITCODE` capture.
+- Completed and verified `-Epochs 1 -RunBenchmark -BenchmarkLimit 1 -BenchmarkSamplesPerTask 1 -BenchmarkPassk 1 -NoRich` against `Qwen3-0.6B`.
+- End-to-end exit code is now stable `0` with artifacts written under `training_run_logs/local_hf_train_20260512_232434/`.
+- Note: with the requested minimal benchmark cap (`1` sample, `pass@1`), all scored metrics remain `0.0000`, which is expected for the very early checkpoint.
+
+[IST 12-May-2026 23:33:30 IST] - Fixed benchmark checkpoint model loading by normalizing serialized quantization config payloads to `BitsAndBytesConfig` before passing to `AutoModelForCausalLM.from_pretrained`.
+- Updated `hf_model_io_utils.py::_extract_quantization_config` to convert dict-based `quantization_config` fields back to `BitsAndBytesConfig` instances.
+- This removed the recurring warning: `model is quantized with BitsAndBytesConfig but you are passing a dict config`.
+- Re-ran one-sample HumanEval smoke evaluations for both baseline (`models\Qwen3-0.6B`) and checkpoint (`hf_checkpoints\Qwen3-0.6B\checkpoint_epoch_0`) paths with exit code `0`.
+- Post-load generation still reports `Sanitized non-finite generation scores`; this is now isolated as a separate model-behavior issue after load-path fixes.
+
+[IST 12-May-2026 23:50:00 IST] - Improved benchmark stderr visibility and responsiveness in `scripts/run_local_hf_training.ps1`.
+- Reworked post-training benchmark dispatch in the launcher to stream stdout and stderr in near-real-time instead of only printing once the process exits.
+- Added live polling of benchmark log files with `[benchmark stderr]` prefixed output so stderr is visible while benchmarks are running.
+- Kept separate `benchmark_stdout.log` / `benchmark_stderr.log` artifacts and preserved exit-code fallback behavior based on final completion markers if process metadata is unavailable.
+- This reduces the impression that benchmark runs are stuck by surfacing progress and errors immediately in the launcher console.
+
+[IST 14-May-2026 18:30:00 IST] - Stabilized local HF generation/PPO logging and launcher argv hygiene after observed fp16 collapse (all-NaN logits, gibberish proposals, skipped PPO minibatches).
+- `hf_generation_utils.py`: optional `AZR_GEN_LOGITS_FP32=1` promotes weights to float32 for the duration of a generation call; rate-limited non-finite log warnings (`AZR_GEN_NONFINITE_LOG_CAP`, default 8); clearer guidance when initial logits are non-finite.
+- `hf_ppo_utils.py`: when `AZR_PPO_DISABLE_CUDA_AUTOCAST` is unset, default to disabling CUDA autocast on fp16/bf16 weights during PPO re-forward (opt out with `AZR_PPO_DISABLE_CUDA_AUTOCAST=0`).
+- `hf_trainer.py`: training start log now prints the resolved `hf_model_name` instead of a hard-coded DeepSeek label.
+- `scripts/run_local_hf_training.ps1`: trainer and benchmark argv arrays are built via trimmed token copies so human/MSVC command echoes cannot glue adjacent flags after odd whitespace.
+
+[IST 14-May-2026 22:15:00 IST] - Local benchmark snapshots and Hub toggles for `evaluate_benchmarks.py`.
+- `hf_benchmark_data.py`: `load_azr_benchmark_split`, nested `canonical_local_split_dir` layouts under `benchmark_data/`, `apply_benchmark_offline_env`, optional `AZR_BENCHMARK_HUB_REVISION`, `AZR_BENCHMARK_ALLOW_ONLINE` (default off) with legacy `AZR_BENCHMARK_ALLOW_ONLINE_LOAD`.
+- `scripts/prefetch_benchmark_datasets.py`: prefetch HumanEval, MBPP, GSM8K, and MATH; optional `AZR_BENCHMARK_PREFETCH_ONLINE=0` to skip; refuses when `AZR_BENCHMARK_OFFLINE=1`.
+- Documented in `README.md`, `benchmark_data/README.md`, and `tests/test_hf_benchmark_data.py`.
+
+[IST 15-May-2026 13:35:43 IST] - Repo hygiene: removed root `run_small_*.log` run artifacts, regenerable `main.bbl`, and deleted the repo-root `__pycache__` directory (bytecode only).
+
+[IST 15-May-2026 23:50:00 IST] - PPO VRAM: `hf_action_value_utils` chunked flat cross-entropy (`AZR_PPO_CE_CHUNK`, default 4096); `hf_ppo_utils.perform_ppo_update` optional `AZR_PPO_MICROBATCH_SIZE` cap on minibatch stride; `run_local_hf_training.ps1` reads `PYTORCH_CUDA_ALLOC_CONF` from `.env` when `AZR_CUDA_ALLOC_CONFIG` unset; `.env.example` documents safe `AZR_HF_BATCH_SIZE` / threshold / allocator knobs for ~24GB-class GPUs.

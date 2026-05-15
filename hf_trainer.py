@@ -1,4 +1,4 @@
-# hf_trainer.py
+﻿# hf_trainer.py
 
 import os
 import json
@@ -22,68 +22,68 @@ from typing import Dict, List, Tuple, Optional, Any, Union, Deque # Added Deque
 def print_status_header():
     """Print a formatted status header with project information"""
     print(f"\n{Fore.CYAN}╔{'═'*78}╗")
-    print(f"{Fore.CYAN}║{' '*25}🤖 ABSOLUTE ZERO MODEL - TRAINING STATUS{' '*16}║")
+    print(f"{Fore.CYAN}║{' '*25} ABSOLUTE ZERO MODEL - TRAINING STATUS{' '*16}║")
     print(f"{Fore.CYAN}╚{'═'*78}╝")
-    print(f"{Fore.YELLOW}📚 Based on: 'Absolute Zero: Reinforced Self-play Reasoning with Zero Data'")
-    print(f"{Fore.BLUE}🎯 Goal: Train AI to reason without initial data using self-play RL")
-    print(f"{Fore.MAGENTA}⚡ Architecture: Actor-Critic PPO with Progressive Context & Curriculum Learning")
+    print(f"{Fore.YELLOW} Based on: 'Absolute Zero: Reinforced Self-play Reasoning with Zero Data'")
+    print(f"{Fore.BLUE} Goal: Train AI to reason without initial data using self-play RL")
+    print(f"{Fore.MAGENTA} Architecture: Actor-Critic PPO with Progressive Context & Curriculum Learning")
     print(f"{Fore.CYAN}╚{'═'*78}╝\n")
 
 def print_training_config(config: Dict):
     """Print formatted training configuration"""
-    print(f"{Fore.GREEN}🛠️  TRAINING CONFIGURATION:")
+    print(f"{Fore.GREEN}  TRAINING CONFIGURATION:")
     print(f"{Fore.WHITE}┌{'─'*48}┐")
-    print(f"{Fore.CYAN}│ 📊 Epochs:{Fore.WHITE} {config['rl_epochs']:<41} │")
-    print(f"{Fore.CYAN}│ 🔄 Gen Steps/Epoch:{Fore.WHITE} {config['generation_steps_per_epoch']:<29} │")
-    print(f"{Fore.CYAN}│ 🎯 PPO Threshold:{Fore.WHITE} {config['ppo_update_threshold']:<32} │")
-    print(f"{Fore.CYAN}│ 📦 Batch Size:{Fore.WHITE} {config['batch_size']:<39} │")
-    print(f"{Fore.CYAN}│ 📝 Max Tokens:{Fore.WHITE} {config['max_new_tokens']:<38} │")
-    print(f"{Fore.CYAN}│ 💾 Checkpoint Dir:{Fore.WHITE} {config['checkpoint_dir']:<32} │")
+    print(f"{Fore.CYAN}│  Epochs:{Fore.WHITE} {config['rl_epochs']:<41} │")
+    print(f"{Fore.CYAN}│  Gen Steps/Epoch:{Fore.WHITE} {config['generation_steps_per_epoch']:<29} │")
+    print(f"{Fore.CYAN}│  PPO Threshold:{Fore.WHITE} {config['ppo_update_threshold']:<32} │")
+    print(f"{Fore.CYAN}│  Batch Size:{Fore.WHITE} {config['batch_size']:<39} │")
+    print(f"{Fore.CYAN}│  Max Tokens:{Fore.WHITE} {config['max_new_tokens']:<38} │")
+    print(f"{Fore.CYAN}│  Checkpoint Dir:{Fore.WHITE} {config['checkpoint_dir']:<32} │")
     print(f"{Fore.WHITE}└{'─'*48}┘\n")
 
 def print_system_status(adapter, device, config=None):
     """Print formatted system and model status"""
-    print(f"{Fore.BLUE}🔧 SYSTEM STATUS:")
+    print(f"{Fore.BLUE} SYSTEM STATUS:")
     print(f"{Fore.WHITE}┌{'─'*48}┐")
     model_name = adapter.model_name if hasattr(adapter, 'model_name') else str(adapter.model)[:40]
     memory_gb = torch.cuda.get_device_properties(0).total_memory // (1024**3) if torch.cuda.is_available() else 'N/A'
     grad_scaler = 'Enabled' if hasattr(adapter, 'scaler') and adapter.scaler else 'Disabled'
     actor_critic = 'Separate' if hasattr(adapter, 'use_separate_value_model') and adapter.use_separate_value_model else 'Shared'
 
-    print(f"{Fore.GREEN}│ ✅ Model:{Fore.WHITE} {model_name:<39} │")
-    print(f"{Fore.GREEN}│ ✅ Device:{Fore.WHITE} {str(device):<39} │")
-    print(f"{Fore.GREEN}│ ✅ Memory:{Fore.WHITE} {f'{memory_gb}GB':<39} │")
-    print(f"{Fore.GREEN}│ ✅ GradScaler:{Fore.WHITE} {grad_scaler:<33} │")
-    print(f"{Fore.GREEN}│ ✅ Actor-Critic:{Fore.WHITE} {actor_critic:<32} │")
+    print(f"{Fore.GREEN}│  Model:{Fore.WHITE} {model_name:<39} │")
+    print(f"{Fore.GREEN}│  Device:{Fore.WHITE} {str(device):<39} │")
+    print(f"{Fore.GREEN}│  Memory:{Fore.WHITE} {f'{memory_gb}GB':<39} │")
+    print(f"{Fore.GREEN}│  GradScaler:{Fore.WHITE} {grad_scaler:<33} │")
+    print(f"{Fore.GREEN}│  Actor-Critic:{Fore.WHITE} {actor_critic:<32} │")
 
     # Show memory optimization settings if config provided
     if config:
         grad_checkpoint = 'Enabled' if config.get('gradient_checkpointing', False) else 'Disabled'
         mixed_precision = 'Enabled' if config.get('mixed_precision', False) else 'Disabled'
-        print(f"{Fore.CYAN}│ 🧠 Gradient Checkpointing:{Fore.WHITE} {grad_checkpoint:<19} │")
-        print(f"{Fore.CYAN}│ ⚡ Mixed Precision:{Fore.WHITE} {mixed_precision:<26} │")
+        print(f"{Fore.CYAN}│  Gradient Checkpointing:{Fore.WHITE} {grad_checkpoint:<19} │")
+        print(f"{Fore.CYAN}│  Mixed Precision:{Fore.WHITE} {mixed_precision:<26} │")
 
     print(f"{Fore.WHITE}└{'─'*48}┘\n")
 
 def print_advanced_features_status():
     """Print advanced features status"""
-    print(f"{Fore.MAGENTA}🚀 ADVANCED FEATURES:")
+    print(f"{Fore.MAGENTA} ADVANCED FEATURES:")
     print(f"{Fore.WHITE}┌{'─'*48}┐")
     context_range = "256 → 1024 tokens"
     curriculum = "BEGINNER → HARD"
     metrics_dir = "./training_metrics/"
     anomaly_mode = 'Enabled' if torch.is_anomaly_enabled() else 'Disabled'
 
-    print(f"{Fore.CYAN}│ 📈 Progressive Context:{Fore.WHITE} {context_range:<29} │")
-    print(f"{Fore.CYAN}│ 🎓 Curriculum Learning:{Fore.WHITE} {curriculum:<30} │")
-    print(f"{Fore.CYAN}│ 📊 Metrics Tracking:{Fore.WHITE} {metrics_dir:<32} │")
-    print(f"{Fore.CYAN}│ 🔍 Autograd Anomaly:{Fore.WHITE} {anomaly_mode:<31} │")
+    print(f"{Fore.CYAN}│  Progressive Context:{Fore.WHITE} {context_range:<29} │")
+    print(f"{Fore.CYAN}│  Curriculum Learning:{Fore.WHITE} {curriculum:<30} │")
+    print(f"{Fore.CYAN}│  Metrics Tracking:{Fore.WHITE} {metrics_dir:<32} │")
+    print(f"{Fore.CYAN}│  Autograd Anomaly:{Fore.WHITE} {anomaly_mode:<31} │")
     print(f"{Fore.WHITE}└{'─'*48}┘\n")
 
 def print_training_summary(trainer, start_time, total_epochs):
     """Print comprehensive training summary"""
     print(f"\n{Fore.CYAN}╔{'═'*78}╗")
-    print(f"{Fore.CYAN}║{' '*25}🎉 TRAINING COMPLETED!{' '*32}║")
+    print(f"{Fore.CYAN}║{' '*25} TRAINING COMPLETED!{' '*32}║")
     print(f"{Fore.CYAN}╚{'═'*78}╝")
 
     # Training duration
@@ -97,56 +97,56 @@ def print_training_summary(trainer, start_time, total_epochs):
         training_progress = summary.get("training_progress", {})
         current_performance = summary.get("current_performance", {})
 
-        print(f"{Fore.GREEN}📊 FINAL RESULTS:")
+        print(f"{Fore.GREEN} FINAL RESULTS:")
         print(f"{Fore.WHITE}┌{'─'*76}┐")
-        print(f"{Fore.CYAN}│ ⏱️  Duration:{Fore.WHITE} {duration_hours:.2f} hours{' '*51} │")
-        print(f"{Fore.CYAN}│ 📈 Total Epochs:{Fore.WHITE} {training_progress.get('total_epochs', 0):<51} │")
-        print(f"{Fore.CYAN}│ 🏆 Best Reward:{Fore.WHITE} {training_progress.get('best_reward', 0):.4f}{' '*48} │")
-        print(f"{Fore.CYAN}│ 🎯 Best Epoch:{Fore.WHITE} {training_progress.get('best_epoch', 0):<52} │")
-        print(f"{Fore.CYAN}│ 🧠 Latest Proposer Reward:{Fore.WHITE} {current_performance.get('latest_reward', 0):.4f}{' '*36} │")
-        print(f"{Fore.CYAN}│ ⚡ Memory Usage:{Fore.WHITE} {current_performance.get('memory_usage_gb', 0):.1f} GB{' '*48} │")
+        print(f"{Fore.CYAN}│   Duration:{Fore.WHITE} {duration_hours:.2f} hours{' '*51} │")
+        print(f"{Fore.CYAN}│  Total Epochs:{Fore.WHITE} {training_progress.get('total_epochs', 0):<51} │")
+        print(f"{Fore.CYAN}│  Best Reward:{Fore.WHITE} {training_progress.get('best_reward', 0):.4f}{' '*48} │")
+        print(f"{Fore.CYAN}│  Best Epoch:{Fore.WHITE} {training_progress.get('best_epoch', 0):<52} │")
+        print(f"{Fore.CYAN}│  Latest Proposer Reward:{Fore.WHITE} {current_performance.get('latest_reward', 0):.4f}{' '*36} │")
+        print(f"{Fore.CYAN}│  Memory Usage:{Fore.WHITE} {current_performance.get('memory_usage_gb', 0):.1f} GB{' '*48} │")
 
         # Convergence status
-        convergence_status = "✅ Converged" if training_progress.get("convergence_detected", False) else "🔄 Still Training"
+        convergence_status = " Converged" if training_progress.get("convergence_detected", False) else " Still Training"
         plateau_status = f"Plateau: {training_progress.get('plateau_count', 0)}"
-        print(f"{Fore.CYAN}│ 📊 Status:{Fore.WHITE} {convergence_status} | {plateau_status}{' '*44} │")
+        print(f"{Fore.CYAN}│  Status:{Fore.WHITE} {convergence_status} | {plateau_status}{' '*44} │")
         print(f"{Fore.WHITE}└{'─'*76}┘")
 
     except FileNotFoundError:
-        print(f"{Fore.YELLOW}⚠️  Metrics file not found - training may have crashed")
+        print(f"{Fore.YELLOW}  Metrics file not found - training may have crashed")
         print(f"{Fore.WHITE}└{'─'*76}┘")
 
     # Model artifacts
     checkpoint_dir = trainer.config.get("checkpoint_dir", "./hf_checkpoints") if hasattr(trainer, "config") else "./hf_checkpoints"
 
-    print(f"\n{Fore.BLUE}💾 SAVED ARTIFACTS:")
+    print(f"\n{Fore.BLUE} SAVED ARTIFACTS:")
     print(f"{Fore.WHITE}┌{'─'*76}┐")
-    print(f"{Fore.CYAN}│ 📁 Checkpoints:{Fore.WHITE} {checkpoint_dir}{' ' * max(0, 44 - len(str(checkpoint_dir)))} │")
-    print(f"{Fore.CYAN}│ 📊 Metrics:{Fore.WHITE} ./training_metrics/{' '*58} │")
-    print(f"{Fore.CYAN}│ 📈 Logs:{Fore.WHITE} ./training_run.log{' '*61} │")
-    print(f"{Fore.CYAN}│ 🔍 Visualizations:{Fore.WHITE} ./visualizations/{' '*53} │")
+    print(f"{Fore.CYAN}│  Checkpoints:{Fore.WHITE} {checkpoint_dir}{' ' * max(0, 44 - len(str(checkpoint_dir)))} │")
+    print(f"{Fore.CYAN}│  Metrics:{Fore.WHITE} ./training_metrics/{' '*58} │")
+    print(f"{Fore.CYAN}│  Logs:{Fore.WHITE} ./training_run.log{' '*61} │")
+    print(f"{Fore.CYAN}│  Visualizations:{Fore.WHITE} ./visualizations/{' '*53} │")
     print(f"{Fore.WHITE}└{'─'*76}┘")
 
-    print(f"\n{Fore.GREEN}🎯 NEXT STEPS:")
+    print(f"\n{Fore.GREEN} NEXT STEPS:")
     print(f"{Fore.WHITE}┌{'─'*76}┐")
-    print(f"{Fore.CYAN}│ 1. 📊 Analyze metrics:{Fore.WHITE} python -m tensorboard --logdir training_metrics/{' '*27} │")
-    print(f"{Fore.CYAN}│ 2. 🔍 Review logs:{Fore.WHITE} tail -f training_run.log{' '*47} │")
-    print(f"{Fore.CYAN}│ 3. 🧪 Test model:{Fore.WHITE} python evaluate_benchmarks.py{' '*42} │")
-    print(f"{Fore.CYAN}│ 4. 📈 Visualize:{Fore.WHITE} python -m matplotlib.pyplot training_metrics/*.json{' '*22} │")
+    print(f"{Fore.CYAN}│ 1.  Analyze metrics:{Fore.WHITE} python -m tensorboard --logdir training_metrics/{' '*27} │")
+    print(f"{Fore.CYAN}│ 2.  Review logs:{Fore.WHITE} tail -f training_run.log{' '*47} │")
+    print(f"{Fore.CYAN}│ 3.  Test model:{Fore.WHITE} python evaluate_benchmarks.py{' '*42} │")
+    print(f"{Fore.CYAN}│ 4.  Visualize:{Fore.WHITE} python -m matplotlib.pyplot training_metrics/*.json{' '*22} │")
     print(f"{Fore.WHITE}└{'─'*76}┘")
 
     print(f"\n{Fore.CYAN}╔{'═'*78}╗")
-    print(f"{Fore.CYAN}║{' '*20}🚀 Ready for evaluation and deployment!{' '*20}║")
+    print(f"{Fore.CYAN}║{' '*20} Ready for evaluation and deployment!{' '*20}║")
     print(f"{Fore.CYAN}╚{'═'*78}╝\n")
 
     # Demo the enhanced display features
-    print(f"{Fore.MAGENTA}🎨 DISPLAY ENHANCEMENT SUMMARY:")
+    print(f"{Fore.MAGENTA} DISPLAY ENHANCEMENT SUMMARY:")
     print(f"{Fore.WHITE}┌{'─'*76}┐")
-    print(f"{Fore.CYAN}│ ✅ Enhanced Progress Bars:{Fore.WHITE} Color-coded with emojis and better formatting")
-    print(f"{Fore.CYAN}│ ✅ Real-time Status:{Fore.WHITE} Live updates during training steps")
-    print(f"{Fore.CYAN}│ ✅ Boxed Layouts:{Fore.WHITE} Professional terminal UI with borders")
-    print(f"{Fore.CYAN}│ ✅ Smart Logging:{Fore.WHITE} Reduced clutter, color-coded messages")
-    print(f"{Fore.CYAN}│ ✅ Visual Feedback:{Fore.WHITE} Clear status indicators and progress tracking")
+    print(f"{Fore.CYAN}│  Enhanced Progress Bars:{Fore.WHITE} Color-coded with text tags and better formatting")
+    print(f"{Fore.CYAN}│  Real-time Status:{Fore.WHITE} Live updates during training steps")
+    print(f"{Fore.CYAN}│  Boxed Layouts:{Fore.WHITE} Professional terminal UI with borders")
+    print(f"{Fore.CYAN}│  Smart Logging:{Fore.WHITE} Reduced clutter, color-coded messages")
+    print(f"{Fore.CYAN}│  Visual Feedback:{Fore.WHITE} Clear status indicators and progress tracking")
     print(f"{Fore.WHITE}└{'─'*76}┘\n")
 from collections import defaultdict, Counter, deque # Added deque
 from torch.nn.utils.rnn import pad_sequence # Added for padding
@@ -203,6 +203,159 @@ def _apply_cpu_cap(cpu_cap_percent: float) -> int:
     return max_threads
 
 
+def _parse_torch_dtype(dtype_name: str):
+    """Convert user-facing dtype strings to torch dtypes."""
+    if dtype_name is None:
+        return None
+
+    normalized = str(dtype_name).lower().strip()
+    if normalized in {"fp16", "float16", "half"}:
+        return torch.float16
+    if normalized in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    if normalized in {"fp32", "float32", "float"}:
+        return torch.float32
+    if normalized == "auto":
+        return None
+    raise ValueError(f"Unsupported dtype '{dtype_name}'. Use fp16, bf16, fp32, or auto.")
+
+
+def _azr_optional_env_bool(name: str) -> Optional[bool]:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return None
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    logging.getLogger("AZR-HF-RL").warning("Invalid %s=%r; ignoring.", name, os.environ.get(name))
+    return None
+
+
+def _azr_optional_env_float(name: str) -> Optional[float]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logging.getLogger("AZR-HF-RL").warning("Invalid %s=%r; ignoring.", name, raw)
+        return None
+
+
+def _azr_optional_env_positive_int(name: str) -> Optional[int]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        v = int(raw)
+    except ValueError:
+        logging.getLogger("AZR-HF-RL").warning("Invalid %s=%r; ignoring.", name, raw)
+        return None
+    if v <= 0:
+        logging.getLogger("AZR-HF-RL").warning("Invalid %s=%r (must be positive); ignoring.", name, raw)
+        return None
+    return v
+
+
+def _azr_optional_env_int_allow_zero(name: str) -> Optional[int]:
+    """Parse int from env when the variable is set; allows zero (e.g. seed task count). Unset -> None."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        logging.getLogger("AZR-HF-RL").warning("Invalid %s=%r; ignoring.", name, raw)
+        return None
+
+
+def _paper_style_env_suppresses_preset_key(key: str) -> bool:
+    """True when an explicit AZR_HF_* / seed env is set so the paper preset must not fill that key."""
+    if key == "learning_rate":
+        return _azr_optional_env_float("AZR_HF_LEARNING_RATE") is not None
+    if key == "critic_learning_rate":
+        return _azr_optional_env_float("AZR_HF_CRITIC_LEARNING_RATE") is not None
+    if key == "generation_steps_per_epoch":
+        return _azr_optional_env_positive_int("AZR_HF_GENERATION_STEPS_PER_EPOCH") is not None
+    if key == "batch_size":
+        return _azr_optional_env_positive_int("AZR_HF_BATCH_SIZE") is not None
+    if key == "ppo_update_threshold":
+        return _azr_optional_env_positive_int("AZR_HF_PPO_UPDATE_THRESHOLD") is not None
+    return False
+
+
+def _maybe_apply_azr_paper_style_defaults(config: Dict[str, Any], user_config_keys: set) -> None:
+    """
+    When AZR_PAPER_STYLE_DEFAULTS=1, apply modest paper-like LR and throughput defaults for keys
+    the caller did not explicitly set (hyperparameters only; does not touch model paths).
+    """
+    if _azr_optional_env_bool("AZR_PAPER_STYLE_DEFAULTS") is not True:
+        return
+    log = logging.getLogger("AZR-HF-RL")
+    preset = {
+        "learning_rate": 5e-7,
+        "critic_learning_rate": 5e-7,
+        "generation_steps_per_epoch": 10,
+        "batch_size": 16,
+        "ppo_update_threshold": 64,
+    }
+    applied_parts = []
+    for key, value in preset.items():
+        if key not in user_config_keys and not _paper_style_env_suppresses_preset_key(key):
+            config[key] = value
+            applied_parts.append(f"{key}={value!r}")
+    # Warm-start buffers like the protocol: small seed set unless caller set seed_tasks_per_type.
+    seed_env = os.environ.get("AZR_SEED_TASKS_PER_TYPE", "").strip()
+    if "seed_tasks_per_type" not in user_config_keys and not seed_env:
+        cur = int(config.get("seed_tasks_per_type", 0) or 0)
+        if cur == 0:
+            config["seed_tasks_per_type"] = 6
+            applied_parts.append("seed_tasks_per_type=6")
+    log.info(
+        "AZR_PAPER_STYLE_DEFAULTS=1: applied hyperparameters for keys not set by caller: %s",
+        ", ".join(applied_parts) if applied_parts else "(none — caller set all preset keys)",
+    )
+
+
+def _apply_azr_hf_env_trainer_hyperparams(config: Dict[str, Any]) -> None:
+    """
+    Apply AZR_HF_* (and optional AZR_SEED_TASKS_PER_TYPE) from the environment after defaults
+    and the paper preset so explicit .env values always win.
+    """
+    log = logging.getLogger("AZR-HF-RL")
+    applied: List[str] = []
+    lr = _azr_optional_env_float("AZR_HF_LEARNING_RATE")
+    if lr is not None:
+        config["learning_rate"] = lr
+        applied.append(f"learning_rate={lr}")
+    clr = _azr_optional_env_float("AZR_HF_CRITIC_LEARNING_RATE")
+    if clr is not None:
+        config["critic_learning_rate"] = clr
+        applied.append(f"critic_learning_rate={clr}")
+    elif lr is not None:
+        config["critic_learning_rate"] = lr
+        applied.append("critic_learning_rate=<matched AZR_HF_LEARNING_RATE>")
+    gs = _azr_optional_env_positive_int("AZR_HF_GENERATION_STEPS_PER_EPOCH")
+    if gs is not None:
+        config["generation_steps_per_epoch"] = gs
+        applied.append(f"generation_steps_per_epoch={gs}")
+    bs = _azr_optional_env_positive_int("AZR_HF_BATCH_SIZE")
+    if bs is not None:
+        config["batch_size"] = bs
+        applied.append(f"batch_size={bs}")
+    ppo = _azr_optional_env_positive_int("AZR_HF_PPO_UPDATE_THRESHOLD")
+    if ppo is not None:
+        config["ppo_update_threshold"] = ppo
+        applied.append(f"ppo_update_threshold={ppo}")
+    st = _azr_optional_env_int_allow_zero("AZR_SEED_TASKS_PER_TYPE")
+    if st is not None:
+        config["seed_tasks_per_type"] = st
+        applied.append(f"seed_tasks_per_type={st}")
+    if applied:
+        log.info("Applied AZR_HF_* / AZR_SEED_TASKS_PER_TYPE trainer hyperparameters: %s", ", ".join(applied))
+
+
 def configure_training_logging(use_rich: bool = True) -> None:
     """Configure logging for the training process."""
     root_logger = logging.getLogger()
@@ -213,7 +366,12 @@ def configure_training_logging(use_rich: bool = True) -> None:
 
     class _AnsiSafeFormatter(logging.Formatter):
         def format(self, record):
-            record.msg = _strip_ansi(str(record.getMessage()))
+            # Expand msg % args once, then clear args. Otherwise Formatter.format
+            # calls getMessage() again and applies % to an already-interpolated msg,
+            # which raises TypeError when args remain non-empty.
+            merged = record.getMessage()
+            record.msg = _strip_ansi(str(merged))
+            record.args = ()
             return super().format(record)
 
     if use_rich and _RICH_AVAILABLE:
@@ -237,7 +395,7 @@ def configure_training_logging(use_rich: bool = True) -> None:
 def print_real_time_status(epoch, step, total_steps, exp_count, prop_reward, solv_reward, buf_size, buf_threshold, diff_level, elapsed_time=None):
     """Print a real-time training status with enhanced formatting"""
     # Clear previous line if in terminal
-    print(f"\r{Fore.WHITE}┌─ {Fore.CYAN}📊 Real-Time Status {Fore.WHITE}─" + "─" * 50 + "┐", end="")
+    print(f"\r{Fore.WHITE}┌─ {Fore.CYAN} Real-Time Status {Fore.WHITE}─" + "─" * 50 + "┐", end="")
 
     # Calculate progress percentage
     progress = (step / total_steps) * 100 if total_steps > 0 else 0
@@ -247,15 +405,15 @@ def print_real_time_status(epoch, step, total_steps, exp_count, prop_reward, sol
         f"\r{Fore.CYAN}│{Fore.WHITE} Epoch: {epoch:<3} │ "
         f"{Fore.GREEN}Step: {step:<2}/{total_steps:<2} ({progress:>5.1f}%) │ "
         f"{Fore.YELLOW}Exp: {exp_count:<3} │ "
-        f"{Fore.MAGENTA}🧠 {prop_reward:<5} │ "
-        f"{Fore.BLUE}🔧 {solv_reward:<5} │ "
-        f"{Fore.CYAN}📦 {buf_size:<2}/{buf_threshold:<2} │ "
-        f"{Fore.GREEN}🎓 {diff_level:<2} {Fore.CYAN}│"
+        f"{Fore.MAGENTA}Prop: {prop_reward:<5} │ "
+        f"{Fore.BLUE}Solv: {solv_reward:<5} │ "
+        f"{Fore.CYAN}Buf: {buf_size:<2}/{buf_threshold:<2} │ "
+        f"{Fore.GREEN}Diff: {diff_level:<2} {Fore.CYAN}│"
     )
 
     # Add elapsed time if provided
     if elapsed_time:
-        status_line += f" {Fore.WHITE}⏱️  {elapsed_time}s{Fore.CYAN} │"
+        status_line += f" {Fore.WHITE}Elapsed {elapsed_time}s{Fore.CYAN} │"
 
     # Fill remaining space and close the box
     remaining_space = 80 - len(status_line.replace(Fore.WHITE, '').replace(Fore.CYAN, '').replace(Fore.GREEN, '').replace(Fore.YELLOW, '').replace(Fore.MAGENTA, '').replace(Fore.BLUE, '')) - 2
@@ -278,13 +436,13 @@ class ColoredFormatter(logging.Formatter):
 
         # Add colors based on level
         if record.levelno >= logging.ERROR:
-            formatted += f"{Fore.RED}🚨 ERROR{Style.RESET_ALL}"
+            formatted += f"{Fore.RED} ERROR{Style.RESET_ALL}"
         elif record.levelno >= logging.WARNING:
-            formatted += f"{Fore.YELLOW}⚠️  WARNING{Style.RESET_ALL}"
+            formatted += f"{Fore.YELLOW}  WARNING{Style.RESET_ALL}"
         elif record.levelno >= logging.INFO:
-            formatted += f"{Fore.BLUE}ℹ️  INFO{Style.RESET_ALL}"
+            formatted += f"{Fore.BLUE}  INFO{Style.RESET_ALL}"
         else:
-            formatted += f"{Fore.WHITE}📝 DEBUG{Style.RESET_ALL}"
+            formatted += f"{Fore.WHITE} DEBUG{Style.RESET_ALL}"
 
         # Add the actual message
         formatted += f" {record.getMessage()}"
@@ -332,6 +490,13 @@ from hf_trainer_callbacks import (
 # Import new advanced modules
 from hf_training_metrics import AdvancedTrainingMetrics
 from hf_context_progressive import ProgressiveContextTrainer, create_context_schedule
+from hf_training_step_trace import (
+    log_training_step_detail,
+    resolve_step_trace_log_path,
+    summarize_execution_for_trace,
+    train_step_trace_enabled,
+    train_step_trace_max_chars,
+)
 from hf_curriculum_learning import CurriculumLearningManager, create_curriculum_config
 from hf_dataset_manager import DatasetManager # Import the sophisticated DatasetManager
 
@@ -388,6 +553,9 @@ class HuggingFaceRLTrainer:
         python_executor: Any,                 
         config: Dict = None
     ):
+        config = config or {}
+        user_config_keys = set(config.keys())
+        seed_value = config.get("seed", 42)
         self.adapter = hf_adapter             
         self.experience_buffer = experience_buffer 
         self.reward_manager = hf_reward_manager 
@@ -401,15 +569,14 @@ class HuggingFaceRLTrainer:
             "rl_epochs": 52,
             "batch_size": 16, 
             "max_new_tokens": 512, 
-            "temperature": 0.7, 
-            "top_p": 0.9,       
-            "temperature_range": (0.7, 0.5), 
-            "top_p_range": (0.95, 0.8),      
+            "temperature": 0.2, 
+            "top_p": 0.95,       
+            "temperature_range": (0.2, 0.2), 
+            "top_p_range": (0.95, 0.95),      
             "learning_rate": 1e-8, # Drastically reduced from 5e-7         
             "critic_learning_rate": 1e-8, # Drastically reduced from 1e-7    
             "ppo_clip_epsilon": 0.2,         
             "value_clip_epsilon": 0.2,       
-            "ppo_epochs": 1,                 
             "gamma": 1.0,                    
             "lambda_gae": 1.0,               
             "value_loss_coef": 0.5,          
@@ -419,14 +586,18 @@ class HuggingFaceRLTrainer:
             "evaluation_interval": 5,
             "checkpoint_interval": 4, # Reduced from 10 to 1 for frequent saving
             "checkpoint_dir": "hf_checkpoints",
-            "seed": args.seed,
+            "seed": seed_value,
             "current_difficulty": 3, 
             "use_curriculum": True, 
             "min_task_difficulty": 1,
             "max_task_difficulty": 5,
             "problem_type_weights": None,
             "generation_steps_per_epoch": 10, 
-            "ppo_update_threshold": 32, 
+            "ppo_update_threshold": 64, 
+            "proposer_num_return_sequences": 8,
+            "solver_num_return_sequences": 1,
+            "k_reference": 6,
+            "ppo_epochs": 2,
             "log_probs_key": "log_probs", 
             "values_key": "values",       
             "advantages_key": "advantages", 
@@ -452,9 +623,17 @@ class HuggingFaceRLTrainer:
             "curriculum_threshold": 0.7,
             # Metrics tracking
             "metrics_dir": "./training_metrics",
+            # Timestamped launcher run dir (optional); also read from AZR_RUN_LOG_DIR env
+            "run_log_dir": "",
         }
         if config:
             self.config.update(config)
+
+        _maybe_apply_azr_paper_style_defaults(self.config, user_config_keys)
+        _apply_azr_hf_env_trainer_hyperparams(self.config)
+
+        self.config.setdefault("run_log_dir", os.environ.get("AZR_RUN_LOG_DIR", "").strip())
+        self._step_trace_log_path = resolve_step_trace_log_path(self.config.get("run_log_dir"))
         
         random.seed(self.config["seed"])
         np.random.seed(self.config["seed"])
@@ -519,6 +698,8 @@ class HuggingFaceRLTrainer:
             "avg_solver_reward_components": defaultdict(float),
             "training_start_time": time.time()
         }
+        # For per-run epoch_summary.jsonl (valid tasks added this epoch vs cumulative).
+        self._epoch_summary_prev_valid_tasks = 0
         if self.config["problem_type_weights"] is None:
             self.config["problem_type_weights"] = {
                 pt: 1.0 / len(self.config["problem_types"]) for pt in self.config["problem_types"]
@@ -553,17 +734,28 @@ class HuggingFaceRLTrainer:
         self.empty_cache_frequency = self.config.get("empty_cache_frequency", 5)
         self.gradient_accumulation_steps = self.config.get("gradient_accumulation_steps", 1)
 
-        # Enable gradient checkpointing if requested
+        # Enable gradient checkpointing if requested (must target the module that actually runs forward).
         if self.config.get("gradient_checkpointing", False):
-            if hasattr(self.adapter.actor_model, "gradient_checkpointing_enable"):
-                self.adapter.actor_model.gradient_checkpointing_enable()
-                logger.info(f"{Fore.BLUE}✅ Gradient checkpointing enabled for actor model{Style.RESET_ALL}")
+            gc_target = None
+            if self.adapter.use_separate_value_model and self.adapter.actor_model is not None:
+                gc_target = self.adapter.actor_model
+            elif getattr(self.adapter, "model", None) is not None:
+                gc_target = self.adapter.model
+            if gc_target is not None and hasattr(gc_target, "gradient_checkpointing_enable"):
+                gc_target.gradient_checkpointing_enable()
+                if hasattr(gc_target, "enable_input_require_grads"):
+                    gc_target.enable_input_require_grads()
+                logger.info(f"{Fore.BLUE} Gradient checkpointing enabled on {gc_target.__class__.__name__}{Style.RESET_ALL}")
+            elif self.config.get("gradient_checkpointing", False):
+                logger.warning(
+                    "gradient_checkpointing is set in config but no actor/main model was found to enable it."
+                )
 
         # Setup scaler for mixed precision if requested
         self.scaler = None
         if self.config.get("mixed_precision", False) and torch.cuda.is_available():
             self.scaler = torch.amp.GradScaler()
-            logger.info(f"{Fore.BLUE}✅ Mixed precision training enabled{Style.RESET_ALL}")
+            logger.info(f"{Fore.BLUE} Mixed precision training enabled{Style.RESET_ALL}")
         self.current_epoch_experiences_processed_in_ppo = 0
 
         alloc_config = self.config.get("cuda_alloc_config", "")
@@ -582,7 +774,7 @@ class HuggingFaceRLTrainer:
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats()
-                logger.debug(f"{Fore.YELLOW}🧹 CUDA cache emptied (step {self.step_counter}){Style.RESET_ALL}")
+                logger.debug(f"{Fore.YELLOW} CUDA cache emptied (step {self.step_counter}){Style.RESET_ALL}")
 
         # Force garbage collection
         gc.collect()
@@ -599,9 +791,9 @@ class HuggingFaceRLTrainer:
         requested_fraction = min(1.0, max(0.05, requested_fraction))
         try:
             torch.cuda.set_per_process_memory_fraction(requested_fraction)
-            logger.info(f"{Fore.BLUE}🧠 Per-process CUDA memory capped to {requested_fraction:.2f}{Style.RESET_ALL}")
+            logger.info(f"{Fore.BLUE} Per-process CUDA memory capped to {requested_fraction:.2f}{Style.RESET_ALL}")
         except Exception as e:
-            logger.warning(f"{Fore.YELLOW}⚠️ Could not set CUDA memory fraction: {e}{Style.RESET_ALL}")
+            logger.warning(f"{Fore.YELLOW} Could not set CUDA memory fraction: {e}{Style.RESET_ALL}")
 
     def _release_training_resources(self):
         """Release model resources and clear memory caches after training."""
@@ -635,6 +827,37 @@ class HuggingFaceRLTrainer:
             torch.cuda.empty_cache()
             torch.cuda.reset_peak_memory_stats()
 
+    def _get_model_max_position(self, config_obj: Optional[Any], default_len: int = 2048) -> int:
+        """Return max position length for a model config, supporting multi-config wrappers."""
+        if config_obj is None:
+            return default_len
+
+        candidate_keys = (
+            "max_position_embeddings",
+            "max_positions",
+            "max_sequence_length",
+            "n_positions",
+            "seq_length",
+            "max_len",
+        )
+
+        for key in candidate_keys:
+            if hasattr(config_obj, key):
+                value = getattr(config_obj, key)
+                if isinstance(value, int) and value > 0:
+                    return value
+
+        # Gemma 4 and some wrapper configs store sequence limits on nested text_config.
+        text_config = getattr(config_obj, "text_config", None)
+        if text_config is not None:
+            for key in candidate_keys:
+                if hasattr(text_config, key):
+                    value = getattr(text_config, key)
+                    if isinstance(value, int) and value > 0:
+                        return value
+
+        return default_len
+
     def _initialize_advanced_features(self):
         """Initialize advanced training features"""
         
@@ -646,10 +869,10 @@ class HuggingFaceRLTrainer:
             strategy=self.config.get('context_strategy', 'performance_gated')
         )
         # Get model max length
-        if self.adapter.use_separate_value_model and hasattr(self.adapter.actor_model, 'config'):
-            model_max_len = self.adapter.actor_model.config.max_position_embeddings
-        elif hasattr(self.adapter, 'model') and hasattr(self.adapter.model, 'config'):
-            model_max_len = self.adapter.model.config.max_position_embeddings
+        if self.adapter.use_separate_value_model and hasattr(self.adapter, "actor_model") and self.adapter.actor_model is not None:
+            model_max_len = self._get_model_max_position(getattr(self.adapter.actor_model, "config", None))
+        elif hasattr(self.adapter, "model") and self.adapter.model is not None:
+            model_max_len = self._get_model_max_position(getattr(self.adapter.model, "config", None))
         else:
             model_max_len = 2048  # Default
         
@@ -687,6 +910,73 @@ class HuggingFaceRLTrainer:
         start_p, end_p = top_p_range
         epochs = self.config["rl_epochs"]
         return start_p - (start_p - end_p) * min(1.0, epoch / epochs)
+
+    def _proposer_generation_kwargs(self, epoch: int) -> Dict[str, Any]:
+        """
+        Sampling hyperparameters for the task proposer only.
+
+        Curriculum defaults use high temperatures (e.g. 0.7) that break structured ```json```
+        proposals; when env overrides are unset, cap to moderate values (configurable).
+
+        Env (optional): AZR_PROPOSER_TEMPERATURE, AZR_PROPOSER_TOP_P, AZR_PROPOSER_DO_SAMPLE
+        (truthy/falsey for the latter).
+        """
+        curriculum_temp = self._get_temperature(epoch)
+        curriculum_top_p = self._get_top_p(epoch)
+        env_temp = _azr_optional_env_float("AZR_PROPOSER_TEMPERATURE")
+        env_top_p = _azr_optional_env_float("AZR_PROPOSER_TOP_P")
+        env_sample = _azr_optional_env_bool("AZR_PROPOSER_DO_SAMPLE")
+        safe_temp_cap = float(self.config.get("proposer_temperature_cap", 0.25))
+        safe_top_p_cap = float(self.config.get("proposer_top_p_cap", 0.92))
+
+        temperature = curriculum_temp if env_temp is None else env_temp
+        top_p = curriculum_top_p if env_top_p is None else env_top_p
+        if env_temp is None:
+            temperature = min(temperature, safe_temp_cap)
+        if env_top_p is None:
+            top_p = min(top_p, safe_top_p_cap)
+
+        temperature = float(max(1e-6, temperature))
+        top_p = float(max(1e-6, min(1.0, top_p)))
+        do_sample = True if env_sample is None else env_sample
+
+        return {"temperature": temperature, "top_p": top_p, "do_sample": do_sample}
+
+    def _append_run_epoch_summary_jsonl(
+        self,
+        epoch: int,
+        epoch_metrics: Dict[str, Any],
+        num_generation_steps: int,
+    ) -> None:
+        """One compact JSON line per epoch under run_log_dir (e.g. launcher sets AZR_RUN_LOG_DIR)."""
+        run_dir = (self.config.get("run_log_dir") or "").strip()
+        if not run_dir:
+            return
+        valid_total = int(self.metrics.get("total_valid_tasks", 0))
+        valid_delta = valid_total - self._epoch_summary_prev_valid_tasks
+        self._epoch_summary_prev_valid_tasks = valid_total
+        exp_total = int(self.metrics.get("total_experiences", 0))
+        gen_steps = max(1, int(num_generation_steps))
+        parse_rate = min(1.0, max(0.0, valid_delta / float(gen_steps)))
+        row = {
+            "epoch": epoch,
+            "proposer_r": float(epoch_metrics.get("mean_reward_proposer", 0.0)),
+            "solver_r": float(epoch_metrics.get("mean_reward_solver", 0.0)),
+            "policy_loss": float(epoch_metrics.get("policy_loss", 0.0)),
+            "value_loss": float(epoch_metrics.get("value_loss", 0.0)),
+            "total_loss": float(epoch_metrics.get("total_loss", 0.0)),
+            "experiences": exp_total,
+            "valid_tasks_total": valid_total,
+            "valid_tasks_epoch": valid_delta,
+            "parse_rate": parse_rate,
+            "plateau_count": int(getattr(self.metrics_tracker, "plateau_count", 0)),
+            "best_reward": float(br) if (br := getattr(self.metrics_tracker, "best_reward", None)) is not None and not __import__('math').isnan(br) and not __import__('math').isinf(br) else None,
+            "best_epoch": int(getattr(self.metrics_tracker, "best_epoch", 0)),
+        }
+        path = Path(run_dir) / "epoch_summary.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def train_epoch(self, epoch: int) -> Dict:
         # Set epoch-specific seed to ensure diversity across epochs and deterministic resumption
@@ -731,11 +1021,12 @@ class HuggingFaceRLTrainer:
 
         # Create enhanced progress bar with detailed formatting
         pbar_generation = tqdm(range(num_generation_steps),
-                              desc=f"{Fore.CYAN}🎯 Epoch {epoch} - Generation{Style.RESET_ALL}",
+                              desc=f"{Fore.CYAN} Epoch {epoch} - Generation{Style.RESET_ALL}",
                               position=0, leave=True,
                               bar_format=f"{Fore.CYAN}{{desc}}{Style.RESET_ALL}: {Fore.GREEN}{{percentage:3.0f}}%{Style.RESET_ALL}|{{bar}}| {Fore.YELLOW}{{n}}/{{total}}{Style.RESET_ALL} [{{elapsed}}<{{remaining}}] {{postfix}}")
         
         for step in pbar_generation:
+            t_step_wall = time.perf_counter()
             current_temp = self._get_temperature(epoch)
             current_top_p = self._get_top_p(epoch)
 
@@ -753,17 +1044,12 @@ class HuggingFaceRLTrainer:
                 self.current_difficulty = self.curriculum_manager.current_difficulty.value
                 self.reward_manager.update_difficulty(self.current_difficulty)
             
-            proposer_prompt_text = create_proposer_prompt(self, chosen_problem_type) # Call imported function
-            
-            # --- NEW: Use seeded tasks for few-shot prompting if available ---
-            if hasattr(self, 'dataset_manager'):
-                seed_task = self.dataset_manager.get_seed_task(chosen_problem_type)
-                if seed_task:
-                    # Inject the seed task into the prompt as an example
-                    example_str = f"\nExample of a {chosen_problem_type} task:\nCode: {seed_task.get('code')}\nInput: {seed_task.get('input')}\nOutput: {seed_task.get('output')}\n"
-                    # Find a good place to insert it, or append to memory
-                    proposer_prompt_text = proposer_prompt_text.replace("{memory}", f"{example_str}\n{{memory}}")
-            # -----------------------------------------------------------------
+            proposer_prompt_text = create_proposer_prompt(
+                self,
+                chosen_problem_type,
+                seed_tasks=getattr(self.dataset_manager, "seed_buffer", {}).get(chosen_problem_type, []) if hasattr(self, "dataset_manager") else None,
+                k_reference=self.config.get("k_reference", 6),
+            )
             
             # Use progressive context length for tokenization
             max_prompt_length = min(
@@ -785,10 +1071,10 @@ class HuggingFaceRLTrainer:
             max_new_tokens_proposer = self.config.get("max_new_tokens_proposer", 256)
             
             # Get model_max_len safely
-            if self.adapter.use_separate_value_model and hasattr(self.adapter.actor_model, 'config'):
-                model_max_len = self.adapter.actor_model.config.max_position_embeddings
-            elif hasattr(self.adapter, 'model') and hasattr(self.adapter.model, 'config'):
-                model_max_len = self.adapter.model.config.max_position_embeddings
+            if self.adapter.use_separate_value_model and hasattr(self.adapter, "actor_model") and self.adapter.actor_model is not None:
+                model_max_len = self._get_model_max_position(getattr(self.adapter.actor_model, "config", None))
+            elif hasattr(self.adapter, "model") and self.adapter.model is not None:
+                model_max_len = self._get_model_max_position(getattr(self.adapter.model, "config", None))
             else:
                 logger.warning("Cannot determine model_max_len from adapter. Defaulting to 2048.")
                 model_max_len = 2048
@@ -799,17 +1085,38 @@ class HuggingFaceRLTrainer:
                 max_prompt_len_for_generation = self.config.get("min_max_prompt_len_for_generation", 64)
                 logger.warning(f"Calculated max_prompt_len_for_proposer_generation ({max_prompt_len_for_generation}) is low or negative. Using {max_prompt_len_for_generation}.")
 
-            generated_task_texts = self.adapter.generate(
-                prompt=proposer_prompt_text, 
-                max_new_tokens=max_new_tokens_proposer,
-                temperature=current_temp, top_p=current_top_p, num_return_sequences=1,
-                max_prompt_length=max_prompt_len_for_generation
-            )
+            proposer_num_return_sequences = max(1, int(self.config.get("proposer_num_return_sequences", 8)))
+            proposer_gen_kw = self._proposer_generation_kwargs(epoch)
+            try:
+                generated_task_texts = self.adapter.generate(
+                    prompt=proposer_prompt_text,
+                    max_new_tokens=max_new_tokens_proposer,
+                    num_return_sequences=proposer_num_return_sequences,
+                    max_prompt_length=max_prompt_len_for_generation,
+                    **proposer_gen_kw,
+                )
+            except Exception as e:
+                if proposer_num_return_sequences == 1:
+                    raise
+                logger.warning(
+                    "Proposer generation with num_return_sequences=%s failed (%s); falling back to single sequence.",
+                    proposer_num_return_sequences,
+                    e,
+                )
+                generated_task_texts = self.adapter.generate(
+                    prompt=proposer_prompt_text,
+                    max_new_tokens=max_new_tokens_proposer,
+                    num_return_sequences=1,
+                    max_prompt_length=max_prompt_len_for_generation,
+                    **proposer_gen_kw,
+                )
+            if not generated_task_texts:
+                raise RuntimeError("No proposer samples returned")
             generated_task_text = generated_task_texts[0]
             
             # --- NEW: Log content periodically to show improvement/diversity ---
             if step % 5 == 0:  # Log every 5 steps
-                logger.info(f"\n{Fore.MAGENTA}🎲 [Step {step}] Generated Task Proposal:{Style.RESET_ALL}")
+                logger.info(f"\n{Fore.MAGENTA} Step {step}: Generated Task Proposal:{Style.RESET_ALL}")
                 logger.info(f"{Fore.WHITE}{generated_task_text[:500]}...{Style.RESET_ALL}") 
             # -------------------------------------------------------------------
 
@@ -864,6 +1171,21 @@ class HuggingFaceRLTrainer:
                     for k, v in proposer_reward_components.items(): self.metrics["avg_proposer_reward_components"][k] += v
                     self.metrics["proposer_rewards"].append(proposer_reward) # Use the actual reward
                 epoch_total_proposer_reward += proposer_reward
+                if train_step_trace_enabled():
+                    log_training_step_detail(
+                        log_path=self._step_trace_log_path,
+                        epoch=epoch,
+                        step=step,
+                        role="proposer",
+                        problem_type=chosen_problem_type,
+                        prompt_text=proposer_prompt_text,
+                        model_raw_output=generated_task_text,
+                        parse_ok=False,
+                        parsed_task_count=0,
+                        proposer_reward=float(proposer_reward),
+                        reward_components=dict(proposer_reward_components),
+                        elapsed_seconds=time.perf_counter() - t_step_wall,
+                    )
             else: # Parsed tasks found
                 task_data = parsed_tasks[0] # Process first valid task
                 self.metrics["total_valid_tasks"] += 1
@@ -895,8 +1217,25 @@ class HuggingFaceRLTrainer:
                     for k, v in proposer_initial_reward_components.items(): self.metrics["avg_proposer_reward_components"][k] += v
                     self.metrics["proposer_rewards"].append(proposer_reward)
                 epoch_total_proposer_reward += proposer_reward
+                if train_step_trace_enabled():
+                    log_training_step_detail(
+                        log_path=self._step_trace_log_path,
+                        epoch=epoch,
+                        step=step,
+                        role="proposer",
+                        problem_type=chosen_problem_type,
+                        prompt_text=proposer_prompt_text,
+                        model_raw_output=generated_task_text,
+                        parse_ok=True,
+                        parsed_task_count=len(parsed_tasks),
+                        first_task_keys=list(task_data.keys()),
+                        proposer_reward=float(proposer_reward),
+                        reward_components=dict(proposer_initial_reward_components),
+                        elapsed_seconds=time.perf_counter() - t_step_wall,
+                    )
 
                 # Solver attempts the task
+                t_solver_wall = time.perf_counter()
                 solver_prompt_text = create_solver_prompt(self, task_data) # Call imported function
                 solver_prompt_inputs = self.adapter.tokenizer(solver_prompt_text, return_tensors="pt", padding=True, truncation=True, max_length=self.config.get("max_prompt_length_solver", 1024))
                 solver_prompt_ids_batch = solver_prompt_inputs.input_ids.to(self.device)
@@ -909,8 +1248,9 @@ class HuggingFaceRLTrainer:
                     logger.warning(f"Calculated max_prompt_len_for_solver_gen ({max_prompt_len_for_solver_gen}) is low or negative. Using {max_prompt_len_for_solver_gen}.")
 
                 generated_solution_texts = self.adapter.generate(
-                    prompt=solver_prompt_text, max_new_tokens=max_new_tokens_solver,
-                    temperature=current_temp, top_p=current_top_p, num_return_sequences=1,
+                prompt=solver_prompt_text, max_new_tokens=max_new_tokens_solver,
+                temperature=current_temp, top_p=current_top_p,
+                num_return_sequences=max(1, int(self.config.get("solver_num_return_sequences", 1))),
                     max_prompt_length=max_prompt_len_for_solver_gen
                 )
                 generated_solution_text = generated_solution_texts[0]
@@ -976,6 +1316,27 @@ class HuggingFaceRLTrainer:
                 self.metrics["solver_rewards"].append(solver_reward)
                 for k, v in solver_reward_components.items(): self.metrics["avg_solver_reward_components"][k] += v
 
+                if train_step_trace_enabled():
+                    mc = train_step_trace_max_chars()
+                    log_training_step_detail(
+                        log_path=self._step_trace_log_path,
+                        epoch=epoch,
+                        step=step,
+                        role="solver",
+                        problem_type=chosen_problem_type,
+                        prompt_text=solver_prompt_text,
+                        model_raw_output=generated_solution_text,
+                        proposer_reward=float(proposer_reward),
+                        solver_reward=float(solver_reward),
+                        execution_summary=summarize_execution_for_trace(
+                            mock_execution_result_for_solver,
+                            min(mc, 800),
+                        ),
+                        reward_components=dict(solver_reward_components),
+                        elapsed_seconds=time.perf_counter() - t_solver_wall,
+                        extra={"task_keys_preview": list(task_data.keys())[:12]},
+                    )
+
                 # Now, potentially update the proposer's reward based on this solver attempt.
                 # This is the tricky part with the current HFRewardManager structure.
                 # For simplicity, we might re-calculate proposer reward here, or the initial one was final.
@@ -1012,6 +1373,12 @@ class HuggingFaceRLTrainer:
                     if "avg_policy_loss" in ppo_metrics: epoch_policy_losses.append(ppo_metrics["avg_policy_loss"])
                     if "avg_value_loss" in ppo_metrics: epoch_value_losses.append(ppo_metrics["avg_value_loss"])
                     if "avg_entropy" in ppo_metrics: epoch_entropies.append(ppo_metrics["avg_entropy"])
+                    if ppo_metrics.get("valid_minibatch_updates", 0) == 0:
+                        logger.warning(
+                            "PPO update had zero valid minibatches this interval. "
+                            f"skipped_minibatches={ppo_metrics.get('skipped_minibatches', 0)}. "
+                            "Continuing training and waiting for valid experiences."
+                        )
 
                 if self.adapter.use_separate_value_model:
                     self.adapter.actor_model.eval()
@@ -1027,7 +1394,7 @@ class HuggingFaceRLTrainer:
             diff_level = str(self.current_difficulty)
 
             pbar_generation.set_postfix_str(
-                f"{Fore.GREEN}📊 {exp_count} {Fore.YELLOW}🧠 {prop_reward} {Fore.BLUE}🔧 {solv_reward} {Fore.MAGENTA}📦 {buf_status} {Fore.CYAN}🎓 {diff_level}"
+                f"{Fore.GREEN} {exp_count} {Fore.YELLOW} {prop_reward} {Fore.BLUE} {solv_reward} {Fore.MAGENTA} {buf_status} {Fore.CYAN} {diff_level}"
             )
 
         # Final PPO update for any remaining experiences
@@ -1043,6 +1410,11 @@ class HuggingFaceRLTrainer:
                 if "avg_policy_loss" in ppo_metrics: epoch_policy_losses.append(ppo_metrics["avg_policy_loss"])
                 if "avg_value_loss" in ppo_metrics: epoch_value_losses.append(ppo_metrics["avg_value_loss"])
                 if "avg_entropy" in ppo_metrics: epoch_entropies.append(ppo_metrics["avg_entropy"])
+                if ppo_metrics.get("valid_minibatch_updates", 0) == 0:
+                    logger.warning(
+                        f"Final epoch PPO update had zero valid minibatches (skipped_minibatches={ppo_metrics.get('skipped_minibatches', 0)}). "
+                        "Continuing training unless stop criteria are met."
+                    )
         
         # Update curriculum difficulty and problem type weights at the end of the epoch
         update_curriculum_difficulty(self, epoch) # Call imported function
@@ -1093,7 +1465,8 @@ class HuggingFaceRLTrainer:
         
         # Record metrics
         self.metrics_tracker.end_epoch(epoch, epoch_metrics)
-        
+        self._append_run_epoch_summary_jsonl(epoch, epoch_metrics, num_generation_steps)
+
         # Check if we should stop training
         if self.metrics_tracker.should_stop_training():
             logger.info(f"{Fore.YELLOW}Training convergence detected by metrics tracker{Style.RESET_ALL}")
@@ -1304,15 +1677,16 @@ def test_curriculum_manager():
         from hf_curriculum_learning import CurriculumLearningManager, create_curriculum_config
         config = create_curriculum_config()
         manager = CurriculumLearningManager(config)
-        print(f"✅ CurriculumLearningManager.current_level = '{manager.current_level}'")
-        print(f"✅ CurriculumLearningManager.current_difficulty_numeric() = {manager.current_difficulty_numeric()}")
+        print(f" CurriculumLearningManager.current_level = '{manager.current_level}'")
+        print(f" CurriculumLearningManager.current_difficulty_numeric() = {manager.current_difficulty_numeric()}")
         return True
     except Exception as e:
-        print(f"❌ Error testing CurriculumLearningManager: {e}")
+        print(f"[ERROR] Error testing CurriculumLearningManager: {e}")
         return False
 
 if __name__ == "__main__":
     import argparse
+    import json
     parser = argparse.ArgumentParser(description="Train AZR HF PPO Trainer")
     parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs to run (outer RL epochs)")
     parser.add_argument(
@@ -1334,8 +1708,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--use-4bit",
-        action="store_true",
-        help="Enable 4-bit model loading when bitsandbytes is available",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Load base weights in 4-bit when bitsandbytes is available (default: off).",
     )
     parser.add_argument(
         "--gpu-memory-fraction",
@@ -1350,6 +1725,19 @@ if __name__ == "__main__":
         help="PYTORCH_CUDA_ALLOC_CONF value for CUDA memory allocator tuning",
     )
     parser.add_argument(
+        "--model-dtype",
+        type=str,
+        choices=["fp16", "bf16", "fp32", "auto"],
+        default="auto",
+        help="Model loading dtype for actor/critic (auto prefers bf16 on CUDA when supported, else fp16).",
+    )
+    parser.add_argument(
+        "--use-separate-value-model",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use separate actor and critic (value) models (AZR / PPO-style; use --no-use-separate-value-model for unified).",
+    )
+    parser.add_argument(
         "--rich",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -1361,28 +1749,78 @@ if __name__ == "__main__":
         default=20.0,
         help="CPU cap percentage (0-100) for this training process",
     )
+    parser.add_argument(
+        "--trainer-config",
+        type=str,
+        default="",
+        help="Path to JSON file with hf trainer configuration overrides.",
+    )
+    parser.add_argument(
+        "--trainer-config-json",
+        type=str,
+        default="",
+        help="JSON string containing hf trainer configuration overrides.",
+    )
+    parser.add_argument(
+        "--set-config",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Additional config override in KEY=VALUE format (VALUE parsed as JSON when possible).",
+    )
     args = parser.parse_args()
+    trainer_config_overrides: Dict[str, object] = {}
+
+    def _safe_parse_literal(value: str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+
+    if args.trainer_config:
+        with open(args.trainer_config, "r", encoding="utf-8") as config_file:
+            overrides_from_file = json.load(config_file)
+            if not isinstance(overrides_from_file, dict):
+                raise ValueError("--trainer-config must contain a JSON object.")
+            trainer_config_overrides.update(overrides_from_file)
+
+    if args.trainer_config_json:
+        overrides_from_cli = json.loads(args.trainer_config_json)
+        if not isinstance(overrides_from_cli, dict):
+            raise ValueError("--trainer-config-json must contain a JSON object.")
+        trainer_config_overrides.update(overrides_from_cli)
+
+    for item in args.set_config:
+        if "=" not in item:
+            raise ValueError(f"Invalid --set-config value '{item}'. Expected KEY=VALUE.")
+        key, value = item.split("=", 1)
+        trainer_config_overrides[key.strip()] = _safe_parse_literal(value.strip())
 
     cpu_threads = _apply_cpu_cap(args.cpu_cap)
     configure_training_logging(use_rich=args.rich)
     logger.info(f"CPU cap set to {args.cpu_cap:.1f}% (max threads={cpu_threads})")
+    try:
+        selected_torch_dtype = _parse_torch_dtype(args.model_dtype)
+    except Exception as e:
+        logger.error(f"Invalid --model-dtype value '{args.model_dtype}': {e}")
+        raise
 
     # Print beautiful status header
     print_status_header()
-    print(f"{Fore.WHITE}🎨 Output mode: {'Rich' if args.rich and _RICH_AVAILABLE else 'Plain'}{Style.RESET_ALL}")
+    print(f"{Fore.WHITE} Output mode: {'Rich' if args.rich and _RICH_AVAILABLE else 'Plain'}{Style.RESET_ALL}")
 
     # Test curriculum manager fix
-    print("\n🔧 Testing Curriculum Manager Fix:")
+    print("\n Testing Curriculum Manager Fix:")
     if test_curriculum_manager():
-        print("✅ Curriculum manager test passed!")
+        print(" Curriculum manager test passed!")
     else:
-        print("❌ Curriculum manager test failed!")
+        print(" Curriculum manager test failed!")
 
     # Demo the real-time status display
-    print(f"\n{Fore.MAGENTA}🎯 DEMONSTRATION: Enhanced Terminal Display Features")
+    print(f"\n{Fore.MAGENTA} DEMONSTRATION: Enhanced Terminal Display Features")
     print(f"{Fore.WHITE}┌{'─'*76}┐")
-    print(f"{Fore.CYAN}│ 💡 Features Added:{Fore.WHITE}")
-    print(f"{Fore.CYAN}│   • Color-coded progress bars with emojis")
+    print(f"{Fore.CYAN}│  Features Added:{Fore.WHITE}")
+    print(f"{Fore.CYAN}│   • Color-coded progress bars with text tags")
     print(f"{Fore.CYAN}│   • Real-time status indicators")
     print(f"{Fore.CYAN}│   • Boxed layouts for better readability")
     print(f"{Fore.CYAN}│   • Reduced logging clutter (WARNING+ only)")
@@ -1390,16 +1828,77 @@ if __name__ == "__main__":
     print(f"{Fore.WHITE}└{'─'*76}┘\n")
 
     logger.info("Starting HF Trainer Example")
-    # Use Qwen3.5-0.8B as the fallback public replacement for the requested 0.5B model.
-    model_to_use = "Qwen/Qwen3.5-0.8B"
+    # Use local Qwen3-0.6B as the fallback model when available.
+    model_to_use = "Qwen3-0.6B"
     
-    local_model_path = Path("models") / "Qwen3.5-0.8B"  # Use local folder name
+    local_model_path = Path("models") / "Qwen3-0.6B"  # Use local folder name
     # Ensure to check for a file that indicates a full download, like config.json or pytorch_model.bin
     hf_model_name = str(local_model_path) if local_model_path.exists() and (local_model_path / "config.json").exists() else model_to_use
 
     # Define a dedicated cache directory within the models folder
     dedicated_hf_cache_dir = Path("models") / ".hf_cache"
     os.makedirs(dedicated_hf_cache_dir, exist_ok=True)
+
+    paper_style = _azr_optional_env_bool("AZR_PAPER_STYLE_DEFAULTS") is True
+    gen_env = _azr_optional_env_positive_int("AZR_HF_GENERATION_STEPS_PER_EPOCH")
+    batch_env = _azr_optional_env_positive_int("AZR_HF_BATCH_SIZE")
+    ppo_env = _azr_optional_env_positive_int("AZR_HF_PPO_UPDATE_THRESHOLD")
+    lr_env = _azr_optional_env_float("AZR_HF_LEARNING_RATE")
+    clr_env = _azr_optional_env_float("AZR_HF_CRITIC_LEARNING_RATE")
+
+    if gen_env is not None:
+        gen_steps_main = gen_env
+    elif paper_style:
+        gen_steps_main = 10
+    else:
+        gen_steps_main = 1
+
+    if batch_env is not None:
+        batch_main = batch_env
+    elif paper_style:
+        batch_main = 16
+    else:
+        batch_main = 1
+
+    if ppo_env is not None:
+        ppo_thr_main = ppo_env
+    elif paper_style:
+        ppo_thr_main = 64
+    else:
+        ppo_thr_main = 1
+
+    seed_tasks = args.seed_tasks_per_type
+    if paper_style:
+        if seed_tasks == 0 and not os.environ.get("AZR_SEED_TASKS_PER_TYPE", "").strip():
+            seed_tasks = 6
+            logger.info(
+                "AZR_PAPER_STYLE_DEFAULTS=1: seed_tasks_per_type=6 (no AZR_SEED_TASKS_PER_TYPE in env; CLI was 0)."
+            )
+
+    lr_critic_main: Dict[str, float] = {}
+    if lr_env is not None:
+        lr_critic_main["learning_rate"] = float(lr_env)
+        lr_critic_main["critic_learning_rate"] = float(clr_env if clr_env is not None else lr_env)
+    elif paper_style:
+        lr_critic_main["learning_rate"] = 5e-7
+        lr_critic_main["critic_learning_rate"] = 5e-7
+    if clr_env is not None and "critic_learning_rate" not in lr_critic_main:
+        lr_critic_main["critic_learning_rate"] = float(clr_env)
+
+    if gen_env is not None or batch_env is not None or ppo_env is not None:
+        logger.info(
+            "__main__ throughput from env: generation_steps_per_epoch=%s, batch_size=%s, ppo_update_threshold=%s.",
+            gen_steps_main,
+            batch_main,
+            ppo_thr_main,
+        )
+    elif paper_style:
+        logger.info(
+            "AZR_PAPER_STYLE_DEFAULTS=1: __main__ throughput generation_steps_per_epoch=%s, batch_size=%s, ppo_update_threshold=%s.",
+            gen_steps_main,
+            batch_main,
+            ppo_thr_main,
+        )
 
     # Trainer runtime configuration:
     # - rl_epochs: total outer training epochs
@@ -1408,23 +1907,31 @@ if __name__ == "__main__":
     # - batch_size: PPO minibatch size used inside each PPO update
     # - max_new_tokens: maximum tokens to generate per call in this example entrypoint (can be overridden per role inside trainer)
     # - checkpoint_dir: where checkpoints from this run will be stored
-    # Memory-optimized configuration for Qwen3.5-0.8B (requires light optimization)
+    # Default __main__ path uses minimal 1/1/1 unless AZR_PAPER_STYLE_DEFAULTS=1 (paper-like throughput).
     config = {
         "rl_epochs": args.epochs,
-        "generation_steps_per_epoch": 1, # Reduced for fast deterministic smoke run
-        "ppo_update_threshold": 1, # Reduced for fast deterministic smoke run
-        "batch_size": 1, # Absolute minimum
+        "generation_steps_per_epoch": gen_steps_main,
+        "ppo_update_threshold": ppo_thr_main,
+        "batch_size": batch_main,
         "max_new_tokens": 256, 
         "checkpoint_dir": args.checkpoint_dir, 
         "gradient_accumulation_steps": 4, 
         "gradient_checkpointing": True, 
-        "mixed_precision": True, # Enable mixed precision
+        # GradScaler is for AMP (fp32 weights + autocast); loading weights in fp16/bf16 yields fp16
+        # parameter grads that torch.amp.GradScaler cannot unscale ("Attempting to unscale FP16 gradients").
+        "mixed_precision": str(args.model_dtype).lower().strip() in ("fp32", "float32", "float"),
         "empty_cache_frequency": 1, # Empty EVERY step
         "load_in_4bit": args.use_4bit,
+        "model_dtype": args.model_dtype,
         "gpu_memory_fraction": args.gpu_memory_fraction,
         "cuda_alloc_config": args.cuda_alloc_config,
-        "seed_tasks_per_type": args.seed_tasks_per_type,  # Set from CLI for deterministic runs
+        "use_separate_value_model": args.use_separate_value_model,
+        "seed_tasks_per_type": seed_tasks,
     }
+    config.update(lr_critic_main)
+    if lr_critic_main:
+        logger.info("__main__ actor/critic learning rates from env or paper preset: %s", lr_critic_main)
+    config.update(trainer_config_overrides)
 
     try:
         use_4bit = bool(config.get("load_in_4bit", False))
@@ -1439,9 +1946,10 @@ if __name__ == "__main__":
         hf_adapter_instance = HuggingFaceAdapter(
             model_name=hf_model_name, 
             auth_token=None,  # Or your HF token if needed
-            use_separate_value_model=True,
+            use_separate_value_model=args.use_separate_value_model,
             hf_cache_dir=str(dedicated_hf_cache_dir), # Use the dedicated cache directory
-            load_in_4bit=use_4bit # Pass 4-bit config
+            load_in_4bit=use_4bit, # Pass 4-bit config
+            torch_dtype_for_actor_critic=selected_torch_dtype # Pass selected precision
         )
         experience_buffer_instance = ExperienceBuffer(capacity=100)
         
@@ -1470,11 +1978,14 @@ if __name__ == "__main__":
         print_advanced_features_status()
         
         # --- SEEDING PHASE ---
-        logger.info(f"\n{Fore.MAGENTA}🌱 STARTING SEEDING PHASE...{Style.RESET_ALL}")
+        logger.info(f"\n{Fore.MAGENTA} STARTING SEEDING PHASE...{Style.RESET_ALL}")
         dataset_manager.generate_seeds(hf_adapter_instance, num_seeds=config.get("seed_tasks_per_type", 0))
         
-        logger.info("Starting training run with DeepSeek-7B...")
+        logger.info(
+            f"Starting training run with model {hf_model_name!r} for {int(args.epochs)} epoch(s)..."
+        )
         trainer.train(args.epochs)
         logger.info("Training run finished.")
     except Exception as e:
         logger.error(f"Error in HuggingFaceRLTrainer example usage: {e}", exc_info=True) 
+        raise

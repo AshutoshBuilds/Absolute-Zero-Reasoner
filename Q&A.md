@@ -1,5 +1,71 @@
 # Questions and Answers
 
+## Q27: Should I use `AZR_PAPER_STYLE_DEFAULTS=1` or list each paper-like hyperparameter in `.env`?
+A27: Either works. **`AZR_PAPER_STYLE_DEFAULTS=1`** fills missing keys with the same numeric targets as the paper-style local preset. For a self-documenting `.env`, set the explicit block instead (or alongside): `AZR_HF_LEARNING_RATE`, `AZR_HF_CRITIC_LEARNING_RATE`, `AZR_HF_GENERATION_STEPS_PER_EPOCH`, `AZR_HF_BATCH_SIZE`, `AZR_HF_PPO_UPDATE_THRESHOLD`, and `AZR_SEED_TASKS_PER_TYPE` (launcher still maps seed count to `--seed-tasks-per-type`). **`AZR_HF_*` values always override** defaults and the umbrella preset after merge. See root `.env` (commented keys) and `hf_trainer._apply_azr_hf_env_trainer_hyperparams`.
+
+## Q26: Training vanished with exit code -1073740791 after SDPA / Flash attention warnings on Windows; what is it and how do I work around it?
+A26: As an unsigned 32-bit NTSTATUS, `-1073740791` is `0xC0000409`, commonly `STATUS_STACK_BUFFER_OVERRUN` (Fast Fail). It often appears near Transformers `sdpa_attention` when CUDA scaled-dot-product kernels misbehave on a given PyTorch build. Retry with eager attention: set `AZR_ATTN_IMPLEMENTATION=eager`, or set `AZR_SDPA_DISABLED=1` (forces eager via env and best-effort disables Flash/mem-efficient CUDA SDP once per process). Documented in root `.env`.
+
+## Q25: How do I run a fixed epoch count without convergence early stopping?
+A25: Set `AZR_DISABLE_CONVERGENCE_EARLY_STOP=1` (or `true`/`yes`/`on`). By default, `AdvancedTrainingMetrics` stops when `plateau_count` exceeds `AZR_CONVERGENCE_PLATEAU_EPOCHS` (default `15`) while the last `AZR_CONVERGENCE_WINDOW_EPOCHS` (default `20`) epochs have finite loss/reward metrics. Increase the plateau threshold or window if you want stricter patience without fully disabling the stop.
+
+## Q24: What should I set for end-to-end offline training (benchmarks + training)?
+A24: Prefetch once with Hub access (`python scripts/prefetch_benchmark_datasets.py`, `AZR_BENCHMARK_OFFLINE` unset). Then for eval-only offline: `AZR_BENCHMARK_ALLOW_ONLINE=0`, `AZR_BENCHMARK_OFFLINE=1`, `AZR_BENCHMARK_DATA_ROOT=benchmark_data`, and `AZR_BENCHMARK_PREFETCH_ONLINE=0` so scripts do not require Hub. For training, use a local base path (e.g. `models\...`) and only then set `HF_HUB_OFFLINE=1`, `HF_DATASETS_OFFLINE=1`, and optionally `TRANSFORMERS_OFFLINE=1` so `from_pretrained` never resolves a remote repo id. See the commented block at the bottom of `.env`.
+
+## Q22: How do I stop benchmark eval from hitting the Hugging Face Hub (HEAD/GET spam)?
+A22: Prefetch splits once from the repo root: `python scripts/prefetch_benchmark_datasets.py` (writes under `AZR_BENCHMARK_DATA_ROOT`, default `benchmark_data/`). Keep `AZR_BENCHMARK_ALLOW_ONLINE` unset or `0` so `evaluate_benchmarks.py` only uses `load_from_disk` when that layout exists. For strict offline I/O, set `AZR_BENCHMARK_OFFLINE=1` (sets `HF_DATASETS_OFFLINE` and `HF_HUB_OFFLINE` during eval). If snapshots are missing and online is off, eval fails with an explicit message to run prefetch.
+
+## Q23: What env vars control benchmark data paths?
+A23: `AZR_BENCHMARK_DATA_ROOT` (default `benchmark_data`, resolved relative to repo root), `AZR_BENCHMARK_ALLOW_ONLINE` (default off: allow Hub download + auto-cache when local missing), `AZR_BENCHMARK_OFFLINE` (optional: force HF offline flags during benchmark entrypoint), `AZR_BENCHMARK_HUB_REVISION` (optional pin for Hub `load_dataset`). If `AZR_BENCHMARK_ALLOW_ONLINE` is unset, legacy `AZR_BENCHMARK_ALLOW_ONLINE_LOAD` is still read when set. See root `.env` and `benchmark_data/README.md`.
+
+## Q18: Post-train benchmarks finished in seconds with empty Rich tables and `{}` eval JSON; what happened?
+A18: A single `--benchmarks` argv token such as `humaneval,mbpp` became one logical name, so no `humaneval` / `mbpp` branch ran in `evaluate_benchmarks.py`. The launcher now splits comma-separated benchmark names when building `BenchmarkList`, and both `evaluate_benchmarks.py` and `run_pre_post_benchmarks.py` normalize comma-separated names after argparse. The logged MSVC command line is built from the same flattened token list as `ProcessStartInfo.Arguments` (see `ConvertTo-CmdLineFromTokens`).
+
+## Q19: How do I reduce PPO NaN / fp16 instability on CUDA without changing defaults for everyone?
+A19: Set `AZR_PPO_DISABLE_CUDA_AUTOCAST=1` (or `true`/`yes`/`on`). This wraps the PPO forward (`get_model_outputs_for_ppo`) in `torch.amp.autocast(device_type='cuda', enabled=False)` so nested mixed precision is disabled for that region only. Unset or `0` keeps prior behavior.
+
+## Q20: Why did PPO fail at `loss.backward()` with tensors that do not require grad after heavy logit sanitization?
+A20: The single-model path sanitizes logits/hidden states through `_sanitize_finite_tensor`. When **every** element in a tensor was non-finite, the old branch used `torch.full_like`, which creates a **new** constant tensor with no connection to model parameters, so the PPO scalar loss had `requires_grad=False`. Sanitization now always goes through `torch.nan_to_num` so the graph remains tied to the forward outputs. Separately, unified training must call `gradient_checkpointing_enable` / `enable_input_require_grads` on `adapter.model` (not only `adapter.actor_model`), or checkpointed forwards can also drop grads.
+
+## Q21: Which env vars tune generation logits vs PPO autocast vs LayerNorm eps?
+A21: **`AZR_GEN_LOGITS_FP32`**: when unset on CUDA, `hf_generation_utils` defaults to fp32-friendly generation logits (set `0`/`false`/`off` to disable; `1` forces on even on CPU paths that honor it). **`AZR_PPO_DISABLE_CUDA_AUTOCAST`** gates nested CUDA autocast during the PPO re-forward. **`AZR_LAYERNORM_EPS`** overrides LayerNorm epsilon at load time in `hf_model_setup_utils` (invalid values fall back to `1e-4`).
+
+## Q17: Training failed again with `can't open file 'O:\\D'` even though benchmark argv was fixed; what broke?
+A17: On Windows PowerShell 5.1, `Start-Process -ArgumentList` can still split argv tokens that contain spaces (for example the resolved `hf_trainer.py` path under `O:\D temp\...`), so Python saw a truncated script path. The launcher now starts trainer and benchmark children with `System.Diagnostics.Process` and a MSVC-compatible `ProcessStartInfo.Arguments` string (each logical flag/value stays a separate token; paths with spaces are quoted as whole arguments), with stdout/stderr copied asynchronously to the same log files as before.
+
+## Q16: Why did benchmarks still load in 4-bit after training with 4-bit off, and why did `run_pre_post_benchmarks.py` appear glued to `--baseline-model` in process argv?
+A16: `HuggingFaceAdapter` / `initialize_models_and_tokenizer` defaulted `load_in_4bit=True` while the trainer only added `--use-4bit` when enabled, so evaluation subprocesses never received a negated flag. The launcher and both Python runners now pass explicit `--use-4bit` or `--no-use-4bit` end-to-end, and `evaluate_benchmarks.py` also reads `AZR_USE_4BIT` when the flag is omitted. For Windows `Start-Process`, embedding quotes *inside* argv array entries could produce malformed command lines; path arguments are passed as plain separate tokens so the script path and `--baseline-model` stay distinct argv fields.
+
+## Q13: Why did the post-train benchmark fail with `can't open file 'O:\\D'` after training completed?
+A13: On Windows, `Start-Process` was given path arguments containing spaces without the same embedded-quote style already used for `hf_trainer.py`. The process then received a broken argv (script path truncated at the first space). The launcher now quotes path-like benchmark arguments so Python receives a single full path for the script and for `--improved-model` / `--results-root` (and ProgramBench dirs when used).
+
+## Q15: Why did checkpoint evaluation fail tokenizer load even though `tokenizer.json` exists under the checkpoint?
+A15: Checkpoints produced here store tokenizer files under `checkpoint_epoch_*/tokenizer/`, while `initialize_models_and_tokenizer` previously called `AutoTokenizer.from_pretrained` on the checkpoint root (where there is no `tokenizer_config.json`). Loading now resolves the nested `tokenizer/` and `model/` directories like `hf_model_io_utils.load_models_and_tokenizer` does.
+
+## Q14: How does `run_pre_post_benchmarks.py` pass separate vs unified actor–critic to `evaluate_benchmarks.py`?
+A14: Both CLIs use `argparse.BooleanOptionalAction` with **default True** for `--use-separate-value-model` (paper-style actor + critic `ValueModel`). The harness appends either `--use-separate-value-model` or `--no-use-separate-value-model` so child processes get an explicit flag. The PowerShell launcher does the same for post-train benchmark argv. (Older builds only had `store_true` for `--use-separate-value-model` and could not accept `--no-use-separate-value-model`; that mismatch is resolved.)
+
+## Q11: What are the default training and sampling settings relative to the AZR paper?
+A11: Defaults follow the paper-style PPO setup: **separate actor and critic** (`--use-separate-value-model` default on; set `AZR_USE_SEPARATE_VALUE_MODEL=false` or `--no-use-separate-value-model` for unified mode). Proposer prompts use **`K-reference=6`** by default, proposer sampling uses **`num_return_sequences=8`** with **`temperature=0.2`** and **`top_p=0.95`**, and benchmarks use the same generation contract. **`AZR_MODEL_DTYPE=auto`** (bf16 on CUDA when supported) and **CUDA generation logits default to fp32-friendly** when `AZR_GEN_LOGITS_FP32` is unset, to reduce non-finite logit issues; **`AZR_USE_4BIT` defaults off** for full-weight training unless you opt in for VRAM-constrained runs.
+
+## Q12: What safeguards were added to avoid runtime regressions from these sampling changes?
+A12: A fallback path was added where proposer multi-sample generation is retried as single-sample generation when multi-sequence decoding fails in supported contexts (`hf_dataset_manager.py` seed generation and proposer training path). Benchmark metadata logging was also expanded in `run_pre_post_benchmarks.py` (`run_metadata.json`) to record `k_reference`, actor-critic mode, `samples_per_task`, generation settings, and an environment snapshot for reproducibility during comparisons.
+
+## Q10: Why switch to Gemma 4 E4B defaults?
+A10: The repoâ€™s local HuggingFace defaults were migrated from Qwen to `google/gemma-4-E4B` to align with the requested model upgrade and reduce drift between entrypoints. Core defaults now point to `google/gemma-4-E4B` (remote) and `models/gemma-4-E4B` (local cache) so `hf_trainer.py`, `orchestrate_self_evolution.py`, benchmark tools, and launcher defaults are consistent.
+
+## Q0: What was fixed to make the first 1-round autopilot run complete?
+A0: Two bugs were fixed: benchmark subprocesses now run from repo root with absolute script + interpreter resolution, and the orchestrator command builder now returns the command correctly and propagates `--no-rich`; this removed missing-file and default-benchmark-timeout failures during end-to-end pilots.
+
+## Q1: Why did later conservative rounds still get accepted despite PPO instability messages?
+A1: The harness now explicitly scans training stdout/stderr for NaN/Inf signatures (including `CRITICAL: NaN or Inf detected`) and marks the round as failed before benchmark evaluation when instability is found. This prevents unstable checkpoints from being accepted even if benchmarks produce non-failing metrics.
+
+## Q1: Why was the earlier orchestrator run timing out?
+A1: The first pilot used default benchmark lists and a 3-minute benchmark budget; with multiple benchmarks (`humaneval`, `mbpp`, `gsm8k`) this exceeded the benchmark timeout. Running with `--benchmarks humaneval` and the same guardrails avoided the timeout.
+
+## Q2: Why were later runs producing the same checkpoint path each time?
+A2: The orchestrator previously reused a shared checkpoint directory, so each round could resume the same `checkpoint_epoch_*` state. The new pilot flow uses per-round checkpoint folders (`<run_root>/<run_name>/checkpoint`) to isolate candidate experiments.
+
 ## Q1: What is the Absolute Zero approach?
 A1: The Absolute Zero approach is a reinforcement learning method that uses self-play reasoning with zero data. It allows an AI model to learn entirely through self-interaction without requiring any external training data. The model learns by playing against itself and improving through the rewards it receives.
 
@@ -121,7 +187,7 @@ A: (As of 2024-07-29 run) The JSON parsing and cleaning in `test_azr_ollama_seed
 
 **Q: What are Unicode "smart quotes" (e.g., \u201c, \u201d) and why can they cause problems with `eval()` in Python even if `json.loads()` parses them?**
 
-    A: Unicode defines various types of quotation marks beyond the standard ASCII straight quotes (`"`, `'`). "Smart quotes" (like “ Left Double Quotation Mark / `\u201c` and ” Right Double Quotation Mark / `\u201d`) are often used by text editors or word processors for typographical aesthetics. 
+    A: Unicode defines various types of quotation marks beyond the standard ASCII straight quotes (`"`, `'`). "Smart quotes" (like â€œ Left Double Quotation Mark / `\u201c` and â€ Right Double Quotation Mark / `\u201d`) are often used by text editors or word processors for typographical aesthetics. 
     When an LLM generates a JSON string and uses these smart quotes within the *string values* for fields like `"input": "\u201c[1,2,3]\u201d"`, Python's `json.loads()` will correctly parse this into a Python string that literally contains those smart quote characters: `Python string: " [1,2,3] "`.
     However, when this resulting Python string is subsequently passed to `eval()`, as the `PythonExecutor` does (e.g., `eval('" [1,2,3] "')`), `eval()` will raise a `SyntaxError`. This is because Python's `eval()` (and the Python parser in general) expects string literals to be delimited by standard straight quotes (`"..."` or `'...'`). Smart quotes are not recognized as valid string delimiters by the Python parser.
 
@@ -703,9 +769,9 @@ The deltas on available benchmarks are `0.0000`, so at this smoke-capacity sampl
 Q: Did you re-run the benchmark after the latest checkpoint and do we see any delta improvement?
 
 A: Yes, the same protocol was re-run and now shows a measurable gain on HumanEval in this sample:
-- humaneval: improved `1/3` = `0.3333` versus baseline `0.0000` (Δ `+0.3333`)
-- mbpp: improved `0.0000` vs baseline `0.0000` (Δ `+0.0000`)
-- gsm8k: improved `0.0000` vs baseline `0.0000` (Δ `+0.0000`)
+- humaneval: improved `1/3` = `0.3333` versus baseline `0.0000` (Î” `+0.3333`)
+- mbpp: improved `0.0000` vs baseline `0.0000` (Î” `+0.0000`)
+- gsm8k: improved `0.0000` vs baseline `0.0000` (Î” `+0.0000`)
 - math: still inaccessible due `hendrycks/competition_math` authentication/access restrictions in this environment.
 
 Q: What command produced the latest comparison files?
@@ -747,9 +813,9 @@ The run completed with return code `0` for both baseline and improved subprocess
 - `improved\eval_results_20260319_125126.json`
 
 Result summary:
-- HumanEval: `1.0000` baseline → `0.0000` improved (Δ `-1.0000`)
-- MBPP: `0.0000` baseline → `0.0000` improved (Δ `+0.0000`)
-- GSM8K: `0.0000` baseline → `0.0000` improved (Δ `+0.0000`)
+- HumanEval: `1.0000` baseline â†’ `0.0000` improved (Î” `-1.0000`)
+- MBPP: `0.0000` baseline â†’ `0.0000` improved (Î” `+0.0000`)
+- GSM8K: `0.0000` baseline â†’ `0.0000` improved (Î” `+0.0000`)
 - MATH: unavailable in environment (`hendrycks/competition_math`), so both side values are N/A.
 
 Note: improved checkpoint loading uses actor-only fallback during evaluation when the checkpoint `ValueModel` restore path still raises the known Qwen3.5 meta-tensor bootstrap issue; baseline and improved runs are still executed and persisted with the same protocol.
@@ -806,11 +872,11 @@ Artifacts:
 - Official AZR checkout `scripts/seeding/7b.sh`
 - Official AZR checkout `scripts/selfplay/7b.sh`
 - Official AZR checkout `scripts/selfplay/coder7b.sh`
-- Official AZR checkout `requirements.txt`
+- Official AZR checkout equirements.txt`
 
 Key differences recorded:
 - Original uses Ray/vLLM/veRL distributed PPO orchestration and hydra scripts; local branch currently uses a simpler local HuggingFace pipeline.
-- Original training entrypoints are `main_azr_ppo.py` with actor/critic/ref worker grouping; local benchmark/evaluation entrypoints are `run_pre_post_benchmarks.py` and `evaluate_benchmarks.py`.
+- Original training entrypoints are `main_azr_ppo.py` with actor/critic/ref worker grouping; local benchmark/evaluation entrypoints are un_pre_post_benchmarks.py` and `evaluate_benchmarks.py`.
 - Local default comparison run is now locked to `--benchmarks humaneval mbpp gsm8k` (math excluded by default), deterministic seed/sample settings, and `--cpu-cap 20`.
 - Local full run results are in `evaluation_results/comparison/run_full_100_20260319_164535/20260319_164535/...` with HumanEval delta `+0.0300` and no delta on MBPP/GSM8K.
 - Added protocol-comparison note file: `Documents/original_protocol_comparison_notes.md` for a concise diff matrix and the current protocol snapshot.
@@ -843,9 +909,160 @@ Key differences recorded:
 
 - `hf_trainer.py` now checks for `training_progress` before printing best reward/convergence and prints a clear fallback message when no epoch metrics exist.
 - `scripts/run_local_hf_training.ps1` now refreshes the process object and checks completion state before reading `ExitCode`, then falls back to a log marker (`Training run finished.`) when needed.
-- A smoke `run_local_hf_training.ps1 -Epochs 0` check now succeeds and returns code `0` after writing run artifacts.
+- A smoke un_local_hf_training.ps1 -Epochs 0` check now succeeds and returns code `0` after writing run artifacts.
 ## Q&A - 20-Mar-2026 01:28:40 IST
 
 **Q: Why are there many root-level checkpoint folders like `hf_trainer_checkpoints_*`? Shouldn't checkpoints be in `hf_checkpoints/`?**
 
 **A:** The default path for direct `hf_trainer.py` runs was still a root-level style name (`hf_trainer_checkpoints_qwen3_5b`), and wrapper runs can also pass legacy names manually, which creates root-level folders. I updated the defaults and launcher behavior so new runs use `hf_checkpoints/` by default and legacy flat names are redirected under `hf_checkpoints/` when provided.
+## Q&A - 20-Mar-2026 03:26:01 IST
+
+**Q: Full fp16 + separate actor-critic run failed at first PPO step with `CausalLMOutputWithPast` missing `last_hidden_state`; is this a model-output bug or training bug?**
+
+**A:** It was a training pipeline issue triggered by dtype/output toggles. `hf_value_model.py` had critic `output_hidden_states` effectively disabled while the PPO path still required a hidden-state fallback; and in that Qwen output variant, `last_hidden_state` is not always guaranteed. I changed `ValueModel` to keep hidden-state availability when needed and removed the critic-forced `output_hidden_states=False` override in `hf_action_value_utils.py`.
+
+Current status: 1-epoch fp16 smoke testing now reaches PPO execution and reaches value inference with no `last_hidden_state` attribute failure.
+
+## Q&A - 20-Mar-2026 03:59:42 IST
+
+**Q:** Why does the full fp16 + separate actor-critic run still hit OOM even with 4-bit quantization, and what fixed it?
+
+**A:** The remaining spike came from critic initialization, not PPO math. `ValueModel` was always forcing `device_map={"": "cpu"}`, so quantized critic checkpoints loaded onto CPU first and then moved again, which can temporarily duplicate memory during startup. I made two targeted changes:
+
+- `hf_value_model.py`: removed unconditional CPU-first device mapping for quantized critic loads and let transformers/bitsandbytes manage placement.
+- `hf_model_setup_utils.py`: only call `critic_model.to(device)` for non-quantized critics.
+
+With these changes, the startup critic load path is expected to avoid the large transient duplication and proceed into PPO with much lower peak memory pressure in separate-model fp16 runs.
+
+Next step: resume the requested full cycle using the local wrapper with:
+- `-UseSeparateValueModel $true`
+- `-ModelDtype fp16`
+- `-Use4Bit`
+- your chosen epoch count (still pending for your final decision).
+
+## Q&A - 20-Mar-2026 13:21:42 IST
+
+**Q: How is the first autonomous self-evolution loop now implemented and what is the current acceptance rule?**
+
+**A:** I added a pilot loop with both a single-run harness and a multi-round orchestrator:
+- `scripts/run_research_harness.py` runs one experiment instance (HF training + benchmark) using:
+  - `--trainer-config`, `--trainer-config-json`, `--set-config` paths/overrides,
+  - deterministic un_name` run folders,
+  - `manifest.json` and un_config.json` artifacts.
+- `orchestrate_self_evolution.py` runs conservative rounds and writes:
+  - round-level ledgers into `autoevo/run_rounds/ledger.json`,
+  - per-round run manifests under `autoevo/run_rounds/round_XX_<id>/`.
+- Acceptance in this pilot is objective-driven: benchmark return codes must be clean, weighted score delta must meet minimum policy threshold, and regression guardrails must pass.
+
+This scaffold is ready for the next step: adding richer candidate generators + optional code-level patch candidates after training-control experiments are validated.
+
+## Q: Why was scripts/run_research_harness.py rewritten?
+A: The harness manifest-orchestrator had a patch application mismatch, so the module was rebuilt in-place to align CLI wiring, checkpoint selection, and benchmark manifest emission with existing utoevo contracts and the evaluator path expected by orchestrate_self_evolution.py.
+
+## Q: Why were separate benchmark flags fixed in 
+un_research_harness.py?
+A: The previous harness forwarded a --no-use-separate-value-model flag that is not supported by 
+un_pre_post_benchmarks.py (--use-separate-value-model is store_true). That mismatch could make benchmark steps fail. The harness now forwards supported switches only and makes objective settings explicit, so each experiment round is evaluated with a stable policy gate and reproducible decision metadata.
+
+## Q: Why does the orchestrator round still fail right now?
+A: The smoke run currently uses the system interpreter, which does not have the AZR runtime dependencies (for example 	orch) installed. The harness now checks interpreter readiness (import torch, import transformers) first and returns a clear reject reason plus full manifest state when dependencies are missing.
+
+## Q: What does the new orchestrator --no-rich option do?
+A: It now propagates through to the harness and suppresses rich terminal styling in both harness and benchmark subprocess runs when present, so repeated autonomous loops can run in plain text logs without ANSI formatting.
+
+## Q&A - 10-May-2026 13:52:10 IST
+
+**Q: How were the three local models compared and what was deleted?**
+A: I compared all non-hidden/non-cache model directories under models/ with the existing smoke-test harness (tests/test_qwen35_0_8b_model_smoke.py) in both non-thinking (enable_thinking=False) and thinking (enable_thinking=True) modes, with AZR_QWEN35_0_8B_MAX_NEW_TOKENS=256 for each run. Metrics were collected for load time, output length, sample preview, and a heuristic concept coverage score.
+
+**Q: What was the winner and what got removed?**
+A: Winner selected: models/Qwen3-1.7B.
+Deleted folders: models/Qwen3.5-0.8B, models/gemma-4-E4B.
+
+**Q: What blocker happened during benchmarking?**
+A: One path was initially evaluated with an incorrect name (Qwen3.5-0-8B) and failed with RepositoryNotFoundError/invalid local path. The run was reissued using models/Qwen3.5-0.8B and succeeded; evidence was logged before pruning.
+
+## Q&A - 12-May-2026 22:45:00 IST
+
+**Q: Is separate actor/critic mode required for PPO in this repository, or should single-model adapters also work?**
+
+**A:** Both paths are supported in the current trainer stack, but the PPO utility layer needed a fix for the single-model path. `get_model_outputs_for_ppo()` and `perform_ppo_update()` now handle `use_separate_value_model=False` without hard-failing, including correct dtype/model selection and model mode restoration.
+
+**Q: How is `advantages.std()` instability handled when only one sample or near-constant rewards arrive?**
+
+**A:** Advantage normalization now uses `unbiased=False` and skips scaling when standard deviation is non-finite or effectively zero, centering by mean only. This avoids the `std` warning and keeps PPO update steps numerically stable in tiny minibatches.
+
+**Q: Why did the post-training benchmark keep failing with `Benchmark failed (exit code -1)` even when `run_pre_post_benchmarks.py` logged `Return codes: 0 / 0`?**
+
+**A:** In this PowerShell environment, the `Start-Process` result object often lacked a valid `ExitCode`, so the launcher treated it as `-1` even when benchmark child processes succeeded. I fixed `scripts/run_local_hf_training.ps1` to:
+- avoid over-quoted argument values,
+- run the benchmark command directly with explicit log redirection, and
+- read `$LASTEXITCODE` from the completed command.
+
+The latest end-to-end run now completes with exit code `0` and valid benchmark artifacts, while still producing `0.0000` scores at the current 1-sample/pass@1 benchmark cap.
+
+**Q: Why did benchmark checkpoints still show the BitsAndBytes warning after the launch fix, and how was it resolved?**
+
+**A:** The warning came from reloading a saved 4-bit checkpoint using `quantization_config` loaded as a plain dict from `config.json`.
+
+The fix was to normalize that dict back into a `BitsAndBytesConfig` object before model reload in `hf_model_io_utils.py::_extract_quantization_config`.
+
+After this change, checkpoint loading for both actor and critic proceeded without the warning and exits with code `0`.
+
+**Q: Why do we still see `GenU: Sanitized non-finite generation scores` during evaluation?**
+
+**A:** This warning now appears even when loading succeeds, which suggests a runtime generation-behavior issue rather than a checkpoint-load failure.
+Likely causes include unstable decoding inputs, temperature/length settings for very small warm-start checkpoints, and output sanitization settings in the `generate_text_with_model` utility.
+Current runs complete successfully (code `0`) but accuracy remains low (`0.00%`) for the early-stage checkpoint.
+
+## Q&A - 12-May-2026 23:50:00 IST
+
+**Q: Why did the benchmark appear to be stuck with little or no output, and how is stderr handled now?**
+
+**A:** The earlier benchmark dispatch pattern only printed logs after process completion. I updated `scripts/run_local_hf_training.ps1` so the benchmark child process now streams both stdout and stderr in small batches while running.
+
+What changed:
+- The benchmark child process now writes to `benchmark_stdout.log` and `benchmark_stderr.log` while the launcher prints new lines as they appear.
+- `stderr` output is now explicitly prefixed as `[benchmark stderr]` and emitted during the run, not only after it finishes.
+- Exit status still ends as a clear return code check with log-file fallback if needed.
+
+This should remove the “stuck” feeling and make runtime exceptions/warnings visible immediately.
+
+## Q&A - 12-May-2026 23:50:00 IST
+
+**Q: Why did the benchmark appear to be stuck with little or no output, and how is stderr handled now?**
+
+**A:** The earlier benchmark dispatch pattern only printed logs after process completion. I updated `scripts/run_local_hf_training.ps1` so the benchmark child process now streams both stdout and stderr in small batches while running.
+
+What changed:
+- The benchmark child process now writes to `benchmark_stdout.log` and `benchmark_stderr.log` while the launcher prints new lines as they appear.
+- `stderr` output is now explicitly prefixed as `[benchmark stderr]` and emitted during the run, not only after it finishes.
+- Exit status still ends as a clear return code check with log-file fallback if needed.
+
+This should remove the “stuck” feeling and make runtime exceptions/warnings visible immediately.
+
+## Q&A - 14-May-2026 18:30:00 IST
+
+**Q: Training looked fine for one epoch then collapsed with millions of `GenU: Sanitized non-finite generation scores` and PPO NaNs. What should I change?**
+
+**A:** That pattern usually means the LM head is producing non-finite logits in low precision (often fp16 on Windows CUDA builds). Prefer `-ModelDtype bf16` when your GPU supports bfloat16, or set `AZR_GEN_LOGITS_FP32=1` for slower but stable float32 generation during self-play. PPO now defaults to `AZR_PPO_DISABLE_CUDA_AUTOCAST` behavior on half/bfloat weights when the env var is unset, which reduces stacked autocast NaNs on the PPO re-forward path.
+
+**Q: How do I run a long local training job (500+ epochs)?**
+
+**A:** Example (adjust flags as needed): `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_local_hf_training.ps1 -Epochs 500 -ModelDtype bf16 -Use4Bit:$false -SeedTasksPerType 16` (add `-RunBenchmark` only when you want post-train eval). Set `AZR_GEN_LOGITS_FP32=1` in the environment before launch if you must stay on fp16 weights and still see non-finite logits.
+
+## Q&A - 14-May-2026 22:15:00 IST
+
+**Q: How do I stop benchmarks from hitting the Hugging Face Hub on every post-train run?**
+
+**A:** One-time prefetch into the repo-local tree, then prefer disk-only loads.
+
+1. From the repo root (with Hub access): `python scripts/prefetch_benchmark_datasets.py`. To skip prefetch without editing the script, set `AZR_BENCHMARK_PREFETCH_ONLINE=0`.
+2. Leave `AZR_BENCHMARK_ALLOW_ONLINE` unset or `0` (default) so evaluation does not download when a snapshot is missing (you get a clear `FileNotFoundError`). To allow Hub loads from eval, set `AZR_BENCHMARK_ALLOW_ONLINE=1`, or set legacy `AZR_BENCHMARK_ALLOW_ONLINE_LOAD=1` when `AZR_BENCHMARK_ALLOW_ONLINE` is not set.
+3. Optional strict mode: `AZR_BENCHMARK_OFFLINE=1` makes `evaluate_benchmarks.py` set `HF_DATASETS_OFFLINE` and `HF_HUB_OFFLINE` at startup (use only after snapshots exist).
+4. To pin revisions, set `AZR_BENCHMARK_HUB_REVISION` when running prefetch (and document it next to stored snapshots). `manifest.json` records Hub SHAs from prefetch when the API succeeds.
+
+Default snapshot root is `benchmark_data/` under the repo (`AZR_BENCHMARK_DATA_ROOT` overrides).
+
+
+

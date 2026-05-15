@@ -4,6 +4,7 @@ Tracks comprehensive metrics for PPO training, model performance, and learning p
 """
 
 import logging
+import os
 import time
 import json
 import torch
@@ -14,6 +15,34 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _convergence_early_stop_disabled() -> bool:
+    return os.environ.get("AZR_DISABLE_CONVERGENCE_EARLY_STOP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _plateau_epoch_limit() -> int:
+    raw = os.environ.get("AZR_CONVERGENCE_PLATEAU_EPOCHS", "15").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning("Invalid AZR_CONVERGENCE_PLATEAU_EPOCHS=%r; using 15.", raw)
+        return 15
+
+
+def _convergence_window_epochs() -> int:
+    raw = os.environ.get("AZR_CONVERGENCE_WINDOW_EPOCHS", "20").strip()
+    try:
+        return max(2, int(raw))
+    except ValueError:
+        logger.warning("Invalid AZR_CONVERGENCE_WINDOW_EPOCHS=%r; using 20.", raw)
+        return 20
+
 
 @dataclass
 class EpochMetrics:
@@ -70,8 +99,15 @@ class AdvancedTrainingMetrics:
         self.best_epoch = 0
         self.plateau_count = 0
         self.improvement_threshold = 0.01
-        
-        logger.info(f"AdvancedTrainingMetrics initialized. Saving to {self.save_dir}")
+        self._plateau_limit = _plateau_epoch_limit()
+        self._convergence_window = _convergence_window_epochs()
+
+        logger.info(
+            "AdvancedTrainingMetrics: plateau_limit=%s window=%s convergence_early_stop_disabled=%s",
+            self._plateau_limit,
+            self._convergence_window,
+            _convergence_early_stop_disabled(),
+        )
     
     def start_epoch(self):
         """Mark the start of an epoch"""
@@ -125,7 +161,13 @@ class AdvancedTrainingMetrics:
         
         # Check for improvement
         current_reward = (epoch_metrics.mean_reward_proposer + epoch_metrics.mean_reward_solver) / 2
-        if current_reward > self.best_reward + self.improvement_threshold:
+        current_epoch_valid = self._is_epoch_metric_valid(epoch_metrics)
+        if not current_epoch_valid:
+            logger.warning(
+                f"Epoch {epoch} metrics are not fully finite (reward/loss). "
+                "Skipping convergence/plateau tracking update for this epoch."
+            )
+        elif current_reward > self.best_reward + self.improvement_threshold:
             self.best_reward = current_reward
             self.best_epoch = epoch
             self.plateau_count = 0
@@ -153,6 +195,11 @@ class AdvancedTrainingMetrics:
             return torch.cuda.memory_allocated() / 1024**3
         return 0.0
     
+    def _is_epoch_metric_valid(self, epoch_metric: EpochMetrics) -> bool:
+        """Only count epochs with finite loss and reward signals."""
+        reward_pair_finite = np.isfinite(epoch_metric.mean_reward_proposer) and np.isfinite(epoch_metric.mean_reward_solver)
+        return np.isfinite(epoch_metric.total_loss) and reward_pair_finite
+
     def get_recent_average(self, metric_name: str, window: int = 10) -> float:
         """Get recent average of a metric"""
         recent_values = list(self.metric_history[metric_name])[-window:]
@@ -160,11 +207,16 @@ class AdvancedTrainingMetrics:
     
     def detect_convergence(self) -> bool:
         """Detect if training has converged"""
-        if len(self.epoch_metrics) < 20:
+        window = self._convergence_window
+        if len(self.epoch_metrics) < window:
             return False
-        
-        # Simple convergence: plateau for many epochs
-        return self.plateau_count > 15
+
+        recent_valid_metrics = [m for m in self.epoch_metrics[-window:] if self._is_epoch_metric_valid(m)]
+        if len(recent_valid_metrics) < window:
+            return False
+
+        # Simple convergence: plateau for many epochs (threshold configurable via env).
+        return self.plateau_count > self._plateau_limit
     
     def save_metrics(self):
         """Save all metrics to files"""
@@ -215,8 +267,8 @@ class AdvancedTrainingMetrics:
         if len(self.epoch_metrics) < 10:
             return False
         
-        # Stop if converged
-        if self.detect_convergence():
+        # Stop if converged (unless disabled for long fixed-epoch runs).
+        if not _convergence_early_stop_disabled() and self.detect_convergence():
             logger.info("Training stopped: Convergence detected")
             return True
         

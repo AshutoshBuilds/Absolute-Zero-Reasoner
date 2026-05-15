@@ -15,10 +15,10 @@ def test_curriculum_manager():
     config = create_curriculum_config()
     manager = CurriculumLearningManager(config)
 
-    print("✅ CurriculumLearningManager initialized successfully")
-    print(f"✅ current_level = '{manager.current_level}'")
-    print(f"✅ current_difficulty = {manager.current_difficulty}")
-    print(f"✅ current_difficulty_numeric() = {manager.current_difficulty_numeric()}")
+    print("[PASS] CurriculumLearningManager initialized successfully")
+    print(f"[PASS] current_level = '{manager.current_level}'")
+    print(f"[PASS] current_difficulty = {manager.current_difficulty}")
+    print(f"[PASS] current_difficulty_numeric() = {manager.current_difficulty_numeric()}")
 
     assert manager.current_level is not None
     assert manager.current_difficulty is not None
@@ -26,16 +26,16 @@ def test_curriculum_manager():
 
     # Test that we can access the property without error
     level_name = manager.current_level
-    print(f"✅ Successfully accessed current_level: '{level_name}'")
+    print(f"[PASS] Successfully accessed current_level: '{level_name}'")
 
 if __name__ == "__main__":
-    print("🔧 Testing Curriculum Manager Fix...")
+    print("Testing Curriculum Manager Fix...")
     print("=" * 50)
 
     if test_curriculum_manager():
-        print("\n✅ SUCCESS: Curriculum manager fix is working!")
+        print("\n[PASS] SUCCESS: Curriculum manager fix is working!")
         print("The 'current_level' attribute error has been resolved.")
     else:
-        print("\n❌ FAILED: Curriculum manager still has issues.")
+        print("\n[FAIL] Curriculum manager still has issues.")
 
     print("=" * 50)

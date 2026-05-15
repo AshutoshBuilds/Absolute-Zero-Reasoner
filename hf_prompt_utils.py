@@ -1,6 +1,7 @@
 import logging
 import random
 from typing import Dict
+from typing import Any, Iterable, List, Optional
 
 # Import utilities from azr_common_utils if they are used by prompt creation
 # (e.g., _extract_code_from_solution, though it seems to be used by the caller of _create_solver_prompt)
@@ -9,6 +10,80 @@ from typing import Dict
 from azr_common_utils import _extract_code_from_solution # Added as it IS used by _create_solver_prompt
 
 logger = logging.getLogger(__name__) # Use a logger specific to this module
+K_REFERENCE_COUNT = 6
+
+DEFAULT_MEMORY_EXAMPLES: List[Dict[str, Any]] = [
+    {
+        "code": "def count_vowels(s):\n    return sum(1 for char in s.lower() if char in 'aeiou')",
+        "input": "\"Hello World\"",
+        "output": "3",
+    },
+    {
+        "code": "def reverse_list(lst):\n    return lst[::-1]",
+        "input": "[1, 2, 3]",
+        "output": "[3, 2, 1]",
+    },
+    {
+        "code": "def is_palindrome(s):\n    clean = str(s).replace(' ', '').lower()\n    return clean == clean[::-1]",
+        "input": "\"Racecar\"",
+        "output": "True",
+    },
+    {
+        "code": "def sum_dict_values(d):\n    return sum(d.values()) if d else 0",
+        "input": "{'a': 1, 'b': 2, 'c': 3}",
+        "output": "6",
+    },
+    {
+        "code": "def flatten_matrix(matrix):\n    return [item for row in matrix for item in row]",
+        "input": "[[1, 2], [3, 4]]",
+        "output": "[1, 2, 3, 4]",
+    },
+    {
+        "code": "def safe_divide(a, b):\n    return a / b if b != 0 else 0",
+        "input": "(10, 2)",
+        "output": "5",
+    },
+]
+
+
+def _coerce_memory_examples(seed_tasks: Optional[Iterable[Dict[str, Any]]], k_reference: int) -> List[Dict[str, Any]]:
+    k_reference = max(0, int(k_reference))
+    selected_examples: List[Dict[str, Any]] = []
+
+    if k_reference == 0:
+        return selected_examples
+
+    if seed_tasks:
+        shuffled = list(seed_tasks)
+        random.shuffle(shuffled)
+        selected_examples.extend(shuffled[:k_reference])
+
+    if len(selected_examples) < k_reference:
+        needed = k_reference - len(selected_examples)
+        selected_examples.extend(DEFAULT_MEMORY_EXAMPLES[:needed])
+
+    if len(selected_examples) > k_reference:
+        selected_examples = selected_examples[:k_reference]
+
+    return selected_examples
+
+
+def _format_memory_examples(example_tasks: List[Dict[str, Any]]) -> str:
+    if not example_tasks:
+        return ""
+
+    lines = []
+    for idx, item in enumerate(example_tasks, start=1):
+        code = item.get("code", "").replace("{", "{{").replace("}", "}}")
+        task_input = item.get("input", "")
+        output = item.get("output", "")
+        lines.append(
+            f"\nExample {idx}:\n"
+            f"Code: {code}\n"
+            f"Input: {task_input}\n"
+            f"Output: {output}"
+        )
+    return "".join(lines)
 
 TOPICS = [
     "math", "string manipulation", "list processing", "dictionary operations", 
@@ -33,9 +108,16 @@ CONSTRAINTS = [
     "Transform keys in a dictionary"
 ]
 
-def create_proposer_prompt(trainer_instance, problem_type: str, phase: str = "train") -> str:
+def create_proposer_prompt(
+    trainer_instance,
+    problem_type: str,
+    phase: str = "train",
+    seed_tasks: Optional[Iterable[Dict[str, Any]]] = None,
+    k_reference: int = K_REFERENCE_COUNT,
+) -> str:
     """Create a prompt for the proposer model with curriculum-based difficulty."""
-    memory = "" # No memory prompt for now, can be added from trainer_instance if needed
+    memory_examples = _coerce_memory_examples(seed_tasks=seed_tasks, k_reference=k_reference)
+    memory = _format_memory_examples(memory_examples)
     current_difficulty = trainer_instance.current_difficulty # Access from trainer_instance
     
     # Select a random topic and constraint to encourage diversity

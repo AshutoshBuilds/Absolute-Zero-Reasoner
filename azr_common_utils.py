@@ -3,7 +3,10 @@ import json
 import re
 import math
 from typing import Any, Tuple, List, Dict, Union
-from hf_parsing_utils import parse_generated_tasks as _parse_generated_tasks
+from hf_parsing_utils import (
+    parse_generated_tasks as _parse_generated_tasks,
+    strip_leading_trailing_code_fences,
+)
 
 # --- Input Parsing and Cleaning Utilities ---
 
@@ -177,6 +180,8 @@ def _extract_code_from_solution(solution_text: str, is_proposer: bool = False) -
     """
     if not isinstance(solution_text, str):
         return ""
+
+    solution_text = strip_leading_trailing_code_fences(solution_text)
 
     # 1. Look for Python markdown code blocks
     match_python_block = re.search(r"```python\n(.*?)\n```", solution_text, re.DOTALL)
