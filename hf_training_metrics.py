@@ -14,6 +14,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+from hf_training.checkpoint_state import combined_checkpoint_score
+
 logger = logging.getLogger(__name__)
 
 
@@ -159,8 +161,16 @@ class AdvancedTrainingMetrics:
         self.epoch_metrics.append(epoch_metrics)
         self._update_metric_history(epoch_metrics)
         
-        # Check for improvement
-        current_reward = (epoch_metrics.mean_reward_proposer + epoch_metrics.mean_reward_solver) / 2
+        # Check for improvement (Q117 spike guard via combined_checkpoint_score)
+        recent_success = [m.task_success_rate for m in self.epoch_metrics[-20:]]
+        current_reward = combined_checkpoint_score(
+            epoch_metrics.mean_reward_proposer,
+            epoch_metrics.mean_reward_solver,
+            r_learnability=metrics_dict.get('r_learnability'),
+            r_correctness=metrics_dict.get('r_correctness'),
+            task_success_rate=epoch_metrics.task_success_rate,
+            recent_task_success_rates=recent_success,
+        )
         current_epoch_valid = self._is_epoch_metric_valid(epoch_metrics)
         if not current_epoch_valid:
             logger.warning(
