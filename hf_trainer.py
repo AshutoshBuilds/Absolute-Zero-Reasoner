@@ -499,6 +499,7 @@ from hf_training_step_trace import (
 )
 from hf_curriculum_learning import CurriculumLearningManager, create_curriculum_config
 from hf_dataset_manager import DatasetManager # Import the sophisticated DatasetManager
+from hf_training.checkpoint_state import score_checkpoint_from_metrics
 
 # Import real CodeExecutor
 from code_executor import CodeExecutor
@@ -1451,6 +1452,8 @@ class HuggingFaceRLTrainer:
             'mean_reward_proposer': np.mean(self.metrics['proposer_rewards'][-num_generation_steps:]) if len(self.metrics['proposer_rewards']) >= num_generation_steps else 0.0,
             'mean_reward_solver': np.mean(self.metrics['solver_rewards'][-num_generation_steps:]) if len(self.metrics['solver_rewards']) >= num_generation_steps else 0.0,
             'task_success_rate': self.metrics.get('solver_success_rate', 0.0),
+            'r_learnability': self.metrics['avg_proposer_reward_components'].get('r_learnability'),
+            'r_correctness': self.metrics['avg_solver_reward_components'].get('r_correctness'),
             'gradient_norm': self.metrics.get('last_gradient_norm', 0.0),
             'learning_rate': self.optimizer.param_groups[0]['lr'],
             'tokens_generated': self.metrics.get('tokens_generated_this_epoch', 0),
@@ -1547,9 +1550,15 @@ class HuggingFaceRLTrainer:
                     logger.info(f"{Fore.YELLOW}Early stopping triggered at epoch {epoch}{Style.RESET_ALL}")
                     break
                 
-                # Calculate checkpoint score
-                recent_rewards = (self.metrics["proposer_rewards"][-10:] + self.metrics["solver_rewards"][-10:])
-                checkpoint_score = np.mean(recent_rewards) if recent_rewards else 0.0
+                # Combined checkpoint score with Q117 easy-spike guard (Q119 best-checkpoint bar)
+                recent_success = [
+                    m.task_success_rate
+                    for m in self.metrics_tracker.epoch_metrics[-20:]
+                ]
+                checkpoint_score = score_checkpoint_from_metrics(
+                    self.metrics,
+                    recent_task_success_rates=recent_success,
+                )
                 
                 # Enhanced checkpoint saving with pruning
                 should_save = (

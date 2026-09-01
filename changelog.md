@@ -1,5 +1,7 @@
 # Changelog
 
+[IST 01-Sep-2026 12:00:00] - Q117 best-checkpoint scoring guard: `hf_training/checkpoint_state.py` rejects easy-spike epochs (dead `r_learnability` ≤ 0.075 + `r_correctness` ≥ 0.95) via `combined_checkpoint_score` scoring -inf; wired into `hf_trainer.py` save/prune, `hf_training_metrics.py` best-reward tracking, and `_recover/hf_trainer_restored.py` shim; CPU tests in `tests/test_checkpoint_state_q117.py` (Aug 2026 run fixtures: epoch 367 rejected, 731 > 727 > 367). Scoring-only — no checkpoint deletion.
+
 [IST 17-May-2026 00:08:00] - Local `.env`: VRAM-safe PPO defaults (`AZR_HF_BATCH_SIZE=2`, `AZR_HF_PPO_UPDATE_THRESHOLD=32`, `AZR_PPO_MICROBATCH_SIZE=2`, `AZR_PPO_CE_CHUNK=2048`); `run_local_hf_training.ps1` forwards `AZR_PPO_*` into the trainer child env; removed `.env.example`; Q&A pointers reference root `.env`.
 
 [IST 15-May-2026 23:59:00] - `hf_parsing_utils.parse_generated_tasks`: skip non-dict elements in JSON task arrays (and `_normalize_task_fields` guard) so mixed lists like `[{...}, 1]` no longer raise `TypeError`; tests in `tests/test_hf_parsing_utils.py`.
